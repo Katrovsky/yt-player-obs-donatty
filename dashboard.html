@@ -1,0 +1,923 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>YouTube Player</title>
+    <style>
+      :root {
+        --p: #3498db;
+        --s: #27ae60;
+        --d: #e74c3c;
+        --w: #f39c12;
+        --dark: #2c3e50;
+        --border: #dfe6e9;
+        --gold: #f1c40f;
+        --bg: #f5f6fa;
+        --panel: #fff;
+        --section: #fafafa;
+        --txt: #2c3e50;
+        --txt2: #95a5a6;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #1a1a1a;
+          --panel: #2d2d2d;
+          --section: #3a3a3a;
+          --txt: #e0e0e0;
+          --txt2: #a0a0a0;
+          --border: #4a4a4a;
+        }
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      }
+      body {
+        background: var(--bg);
+        color: var(--txt);
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+      .header {
+        background: var(--dark);
+        color: #fff;
+        padding: 16px 24px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      }
+      .header h1 {
+        font-size: 1.25rem;
+        font-weight: 600;
+      }
+      .conn {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.85rem;
+      }
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+      }
+      .dot-on {
+        background: #27ae60;
+      }
+      .dot-off {
+        background: #e74c3c;
+      }
+      .main {
+        flex: 1;
+        display: grid;
+        grid-template-columns: 300px 1fr 350px;
+        gap: 0;
+        overflow: hidden;
+      }
+      .sidebar {
+        background: var(--panel);
+        border-right: 1px solid var(--border);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      .sidebar-header {
+        padding: 16px;
+        border-bottom: 1px solid var(--border);
+        font-weight: 600;
+        font-size: 0.9rem;
+      }
+      .sidebar-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 16px;
+      }
+      .center {
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      .player-section {
+        background: var(--panel);
+        border-bottom: 1px solid var(--border);
+        padding: 24px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 16px;
+      }
+      .now-playing {
+        text-align: center;
+        width: 100%;
+      }
+      .np-label {
+        font-size: 0.75rem;
+        color: var(--txt2);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 4px;
+      }
+      .np-title {
+        font-size: 1.1rem;
+        font-weight: 600;
+        margin-bottom: 4px;
+      }
+      .np-title-link {
+        color: var(--txt);
+        text-decoration: none;
+        transition: color 0.2s;
+      }
+      .np-title-link:hover {
+        color: var(--p);
+      }
+      .np-meta {
+        font-size: 0.85rem;
+        color: var(--txt2);
+      }
+      .controls {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .ctrl-btn {
+        background: var(--panel);
+        border: 2px solid var(--border);
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        font-size: 18px;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        position: relative;
+        overflow: hidden;
+      }
+      .ctrl-btn:hover {
+        border-color: var(--p);
+        transform: scale(1.1);
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+      }
+      .ctrl-btn:active {
+        transform: scale(0.95);
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+      }
+      .ctrl-btn.play {
+        width: 64px;
+        height: 64px;
+        background: var(--s);
+        border-color: var(--s);
+        color: #fff;
+        font-size: 24px;
+        box-shadow: 0 4px 10px rgba(39, 174, 96, 0.3);
+      }
+      .ctrl-btn.play:hover {
+        background: #229954;
+        border-color: #229954;
+        box-shadow: 0 6px 15px rgba(39, 174, 96, 0.4);
+        transform: scale(1.05);
+      }
+      .ctrl-btn.play:active {
+        transform: scale(0.98);
+      }
+      .ctrl-btn.pause {
+        background: var(--w);
+        border-color: var(--w);
+        box-shadow: 0 4px 10px rgba(243, 156, 18, 0.3);
+      }
+      .ctrl-btn.pause:hover {
+        background: #e67e22;
+        border-color: #e67e22;
+        box-shadow: 0 6px 15px rgba(243, 156, 18, 0.4);
+        transform: scale(1.05);
+      }
+      .ctrl-btn.pause:active {
+        transform: scale(0.98);
+      }
+      .ctrl-btn::after {
+        content: "";
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 0;
+        height: 0;
+        background: rgba(255, 255, 255, 0.3);
+        border-radius: 50%;
+        transform: translate(-50%, -50%);
+        transition:
+          width 0.3s ease,
+          height 0.3s ease;
+      }
+      .ctrl-btn:active::after {
+        width: 200%;
+        height: 200%;
+      }
+      .queue-section {
+        flex: 1;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+      .queue-header {
+        padding: 16px 24px;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .queue-title {
+        font-weight: 600;
+        font-size: 0.95rem;
+      }
+      .queue-stats {
+        display: flex;
+        gap: 16px;
+        font-size: 0.85rem;
+      }
+      .stat {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .stat-num {
+        font-weight: 700;
+        color: var(--gold);
+      }
+      .queue-list {
+        flex: 1;
+        overflow-y: auto;
+        padding: 16px 24px;
+      }
+      .q-item {
+        background: var(--panel);
+        padding: 12px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        margin-bottom: 8px;
+        transition: all 0.2s;
+      }
+      .q-item:hover {
+        background: var(--section);
+        border-color: var(--p);
+      }
+      .q-item.cur {
+        background: rgba(39, 174, 96, 0.15);
+        border-color: var(--s);
+        border-width: 2px;
+      }
+      .q-item.paid {
+        border-left: 4px solid var(--gold);
+      }
+      .q-item.past {
+        opacity: 0.4;
+      }
+      .q-item.playlist {
+        border-left: 4px solid var(--p);
+      }
+
+      .q-title {
+        font-weight: 600;
+        margin-bottom: 4px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.9rem;
+      }
+      .q-title-link {
+        color: inherit;
+        text-decoration: none;
+        cursor: pointer;
+      }
+      .q-title-link:hover {
+        text-decoration: underline;
+      }
+      .badge {
+        background: var(--gold);
+        color: #fff;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-size: 0.7rem;
+        font-weight: 700;
+      }
+      .q-meta {
+        font-size: 0.8rem;
+        color: var(--txt2);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .q-rm {
+        background: var(--d);
+        color: #fff;
+        border: none;
+        padding: 2px 8px;
+        border-radius: 3px;
+        font-size: 0.7rem;
+        cursor: pointer;
+        opacity: 0.7;
+        transition: opacity 0.2s;
+      }
+      .q-rm:hover {
+        opacity: 1;
+      }
+      .empty {
+        text-align: center;
+        padding: 60px 20px;
+        color: var(--txt2);
+      }
+      input {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        font-size: 0.9rem;
+        background: var(--panel);
+        color: var(--txt);
+      }
+      input:focus {
+        outline: none;
+        border-color: var(--p);
+        box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
+      }
+      .btn {
+        width: 100%;
+        background: var(--p);
+        color: #fff;
+        border: none;
+        padding: 10px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.9rem;
+        font-weight: 500;
+        transition: opacity 0.2s;
+        margin-top: 8px;
+      }
+      .btn:hover {
+        opacity: 0.9;
+      }
+      .btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .btn-s {
+        background: var(--s);
+      }
+      .btn-d {
+        background: var(--d);
+      }
+      .btn-w {
+        background: var(--w);
+      }
+      .divider {
+        height: 1px;
+        background: var(--border);
+        margin: 16px 0;
+      }
+      .pl-item {
+        padding: 10px 12px;
+        border-radius: 4px;
+        margin-bottom: 4px;
+        cursor: pointer;
+        transition: all 0.2s;
+        border: 1px solid transparent;
+      }
+      .pl-item:hover {
+        background: var(--section);
+        border-color: var(--border);
+      }
+      .pl-item.active {
+        background: rgba(52, 152, 219, 0.15);
+        border-color: var(--p);
+      }
+      .pl-title {
+        font-size: 0.85rem;
+        font-weight: 500;
+        margin-bottom: 2px;
+      }
+      .pl-meta {
+        font-size: 0.75rem;
+        color: var(--txt2);
+      }
+      .section-block {
+        margin-bottom: 20px;
+      }
+      .section-title {
+        font-size: 0.85rem;
+        font-weight: 600;
+        margin-bottom: 8px;
+        color: var(--txt2);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+      .btn-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        margin-top: 8px;
+      }
+      .info-box {
+        margin-top: 12px;
+        padding: 8px;
+        background: var(--section);
+        border-radius: 4px;
+        font-size: 0.85rem;
+      }
+      .info-row {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 4px;
+      }
+      .info-row:last-child {
+        margin-bottom: 0;
+      }
+      .info-label {
+        color: var(--txt2);
+      }
+      .info-value {
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <h1>YouTube Player</h1>
+      <div class="conn">
+        <div class="dot dot-off" id="st"></div>
+        <span id="stTxt">Disconnected</span>
+      </div>
+    </div>
+    <div class="main">
+      <aside class="sidebar">
+        <div class="sidebar-header">Settings</div>
+        <div class="sidebar-body">
+          <div class="section-block">
+            <div class="section-title">Add Track</div>
+            <input type="text" id="url" placeholder="YouTube URL or Video ID" />
+            <input type="text" id="user" placeholder="Username" value="User" />
+            <button class="btn btn-s" onclick="api.add()" id="addBtn">
+              Add to Queue
+            </button>
+          </div>
+          <div class="divider"></div>
+          <div class="section-block">
+            <div class="section-title">Playlist</div>
+            <input type="text" id="plUrl" placeholder="Playlist URL" />
+            <button class="btn" onclick="api.plSet()" id="plSetBtn">
+              Set Playlist
+            </button>
+            <div class="btn-grid">
+              <button class="btn btn-s" onclick="api.plToggle(1)">
+                Enable
+              </button>
+              <button class="btn btn-d" onclick="api.plToggle(0)">
+                Disable
+              </button>
+            </div>
+            <button class="btn btn-w" onclick="api.plReload()" id="plReload">
+              Reload
+            </button>
+            <button class="btn" onclick="api.plShuffle()" id="plShuffle">
+              Shuffle
+            </button>
+            <div class="info-box">
+              <div class="info-row">
+                <span class="info-label">Status:</span
+                ><span class="info-value" id="plSt">Not loaded</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Tracks:</span
+                ><span class="info-value" id="plTr">-</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Shuffle:</span
+                ><span class="info-value" id="plShuffleStatus">Off</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </aside>
+      <main class="center">
+        <div class="player-section">
+          <div class="now-playing">
+            <div class="np-label">Now Playing</div>
+            <div class="np-title" id="npT">-</div>
+            <div class="np-meta" id="npM">-</div>
+          </div>
+          <div class="controls">
+            <div
+              class="ctrl-btn"
+              onclick="api.cmd('previous')"
+              title="Previous">
+              <svg
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+                style="display: block; margin: auto">
+                <path
+                  d="M18 18V6L8 12L18 18ZM20 18V6H18V18H20Z"
+                  fill="currentColor" />
+              </svg>
+            </div>
+            <div
+              class="ctrl-btn play"
+              onclick="api.pp()"
+              id="ppBtn"
+              title="Play/Pause">
+              <svg
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+                style="display: block; margin: auto">
+                <path d="M8 5V19L19 12L8 5Z" fill="currentColor" />
+              </svg>
+            </div>
+            <div class="ctrl-btn" onclick="api.cmd('next')" title="Next">
+              <svg
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+                style="display: block; margin: auto">
+                <path
+                  d="M6 18V6L16 12L6 18ZM4 18V6H6V18H4Z"
+                  fill="currentColor" />
+              </svg>
+            </div>
+          </div>
+        </div>
+        <div class="queue-section">
+          <div class="queue-header">
+            <div class="queue-title">Queue</div>
+            <div class="queue-stats">
+              <div class="stat">
+                <span class="stat-num" id="paid">0</span> Paid
+              </div>
+              <div class="stat">
+                <span class="stat-num" id="free">0</span> Free
+              </div>
+              <button
+                class="btn btn-d"
+                onclick="api.cmd('clear')"
+                style="width: auto; padding: 6px 12px; margin: 0">
+                Clear All
+              </button>
+            </div>
+          </div>
+          <div class="info-box" style="margin: 16px 24px 0">
+            <div class="info-row">
+              <span class="info-label">Total Played:</span
+              ><span class="info-value" id="totalPlayed">0</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Paid Tracks:</span
+              ><span class="info-value" id="paidTracks">0</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Playlist Tracks:</span
+              ><span class="info-value" id="playlistTracks">0</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Donation Monitor:</span
+              ><span class="info-value" id="donationStatus">Unknown</span>
+            </div>
+          </div>
+          <div class="queue-list" id="q">
+            <div class="empty">Queue is empty</div>
+          </div>
+        </div>
+      </main>
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          Playlist Tracks (<span id="plCnt">0</span>)
+        </div>
+        <div class="sidebar-body" id="plList">
+          <div class="empty" style="padding: 40px 20px">No playlist loaded</div>
+        </div>
+      </aside>
+    </div>
+    <script>
+      let ws,
+        baseUrl = window.location.origin,
+        currSt = "stopped",
+        reconnectAttempts = 0,
+        maxReconnectDelay = 30000;
+      const api = {
+        async fetch(e, o = {}) {
+          try {
+            const r = await fetch(`${baseUrl}${e}`, { ...o });
+            return await r.json();
+          } catch (e) {
+            return { success: false, message: e.message };
+          }
+        },
+        async add() {
+          const u = document.getElementById("url").value.trim(),
+            usr = document.getElementById("user").value.trim() || "User",
+            btn = document.getElementById("addBtn");
+          if (!u) return alert("Enter YouTube URL");
+          btn.disabled = true;
+          btn.textContent = "Loading...";
+          const d = await this.fetch(
+            `/api/add-url?url=${encodeURIComponent(u)}&user=${encodeURIComponent(usr)}`,
+            { method: "POST" },
+          );
+          btn.disabled = false;
+          btn.textContent = "Add to Queue";
+          if (d.success) document.getElementById("url").value = "";
+          else alert("Failed: " + d.message);
+        },
+        async cmd(c) {
+          const d = await this.fetch(`/api/${c}`, { method: "POST" });
+          if (!d.success) alert("Failed: " + d.message);
+        },
+        async pp() {
+          await this.cmd(currSt === "playing" ? "pause" : "play");
+        },
+        async plSet() {
+          const u = document.getElementById("plUrl").value.trim(),
+            btn = document.getElementById("plSetBtn");
+          if (!u) return alert("Enter playlist URL");
+          btn.disabled = true;
+          btn.textContent = "Loading...";
+          const d = await this.fetch(
+            `/api/playlist/set?url=${encodeURIComponent(u)}`,
+            { method: "POST" },
+          );
+          btn.disabled = false;
+          btn.textContent = "Set Playlist";
+          if (d.success) {
+            await this.plTracks();
+            await this.plStatus();
+          } else {
+            alert("Failed: " + d.message);
+          }
+        },
+        async plToggle(e) {
+          const d = await this.fetch(
+            `/api/playlist/${e ? "enable" : "disable"}`,
+            { method: "POST" },
+          );
+          if (d.success) {
+            await this.plTracks();
+            await this.plStatus();
+          }
+        },
+        async plReload() {
+          const btn = document.getElementById("plReload");
+          btn.disabled = true;
+          btn.textContent = "Reloading...";
+          const d = await this.fetch("/api/playlist/reload", {
+            method: "POST",
+          });
+          btn.disabled = false;
+          btn.textContent = "Reload";
+          if (d.success) {
+            await this.plTracks();
+            await this.plStatus();
+          } else {
+            alert("Failed: " + d.message);
+          }
+        },
+        async plJump(i) {
+          await this.fetch(`/api/playlist/jump?index=${i}`, { method: "POST" });
+        },
+        async plShuffle() {
+          const d = await this.fetch("/api/playlist/shuffle", {
+            method: "POST",
+          });
+          if (d.success) {
+            await this.plTracks();
+            await this.plStatus();
+          }
+        },
+        async rm(i) {
+          await this.fetch(`/api/remove?index=${i}`, { method: "POST" });
+        },
+        async getDonationStatus() {
+          const d = await this.fetch("/api/donation/status");
+          if (d.success) {
+            document.getElementById("donationStatus").textContent = d.data
+              .enabled
+              ? "Active"
+              : "Inactive";
+            document.getElementById("donationStatus").style.color = d.data
+              .enabled
+              ? "var(--s)"
+              : "var(--txt2)";
+          } else {
+            document.getElementById("donationStatus").textContent = "Unknown";
+          }
+        },
+        async plTracks() {
+          const d = await this.fetch("/api/playlist/tracks");
+          if (d.success) ui.plTracks(d.data);
+        },
+        async plStatus() {
+          const d = await this.fetch("/api/playlist/status");
+          if (d.success) ui.plStatus(d.data);
+        },
+      };
+      const ui = {
+        update(d) {
+          currSt = d.action || "stopped";
+          const t = d.current ? d.current.title : "-",
+            m = d.current ? `${d.current.added_by || "Unknown"}` : "-",
+            tEl = document.getElementById("npT");
+          if (d.current)
+            tEl.innerHTML = `<a href="https://www.youtube.com/watch?v=${d.current.video_id}" target="_blank" class="np-title-link">${t}</a>`;
+          else tEl.textContent = t;
+          document.getElementById("npM").textContent = m;
+          const btn = document.getElementById("ppBtn");
+          if (currSt === "playing") {
+            btn.innerHTML =
+              '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:block;margin:auto"><path d="M14 19V5H18V19H14ZM6 19V5H10V19H6Z" fill="currentColor"/></svg>';
+            btn.classList.remove("play");
+            btn.classList.add("pause");
+          } else {
+            btn.innerHTML =
+              '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:block;margin:auto"><path d="M8 5V19L19 12L8 5Z" fill="currentColor"/></svg>';
+            btn.classList.remove("pause");
+            btn.classList.add("play");
+          }
+        },
+        queue(d) {
+          const c = document.getElementById("q"),
+            qu = d.queue || [],
+            pos = d.position || 0;
+          document.getElementById("paid").textContent = qu.filter(
+            (t) => t.is_paid,
+          ).length;
+          document.getElementById("free").textContent = qu.filter(
+            (t) => !t.is_paid,
+          ).length;
+
+          const allTracks = qu;
+          const totalPlayed = pos;
+          const paidTracks = allTracks.filter((t) => t.is_paid).length;
+          const playlistTracks = allTracks.filter(
+            (t) => t.added_by === "Playlist",
+          ).length;
+
+          document.getElementById("totalPlayed").textContent = totalPlayed;
+          document.getElementById("paidTracks").textContent = paidTracks;
+          document.getElementById("playlistTracks").textContent =
+            playlistTracks;
+
+          if (qu.length === 0) {
+            c.innerHTML = '<div class="empty">Queue is empty</div>';
+            return;
+          }
+          c.innerHTML = qu
+            .map((t, i) => {
+              const isCur = i === pos,
+                isPast = i < pos,
+                isFut = i > pos,
+                qIdx = i - pos - 1,
+                m = Math.floor(t.duration_sec / 60),
+                s = (t.duration_sec % 60).toString().padStart(2, "0");
+              const trackType = t.is_paid
+                ? "paid"
+                : t.added_by === "Playlist"
+                  ? "playlist"
+                  : "";
+              const badges =
+                (t.is_paid ? '<span class="badge">PAID</span>' : "") +
+                (isCur
+                  ? '<span class="badge" style="background:var(--s)">NOW</span>'
+                  : "");
+              const rmBtn = isFut
+                ? '<button class="q-rm" onclick="api.rm(' +
+                  qIdx +
+                  ')">Remove</button>'
+                : "";
+              return (
+                '<div class="q-item ' +
+                (isCur ? "cur " : "") +
+                trackType +
+                " " +
+                (isPast ? "past" : "") +
+                '"><div class="q-title"><a href="https://www.youtube.com/watch?v=' +
+                t.video_id +
+                '" target="_blank" class="q-title-link">' +
+                (i + 1) +
+                ". " +
+                t.title +
+                "</a>" +
+                badges +
+                '</div><div class="q-meta"><span>' +
+                (t.added_by || "Unknown") +
+                " - " +
+                m +
+                ":" +
+                s +
+                "</span>" +
+                rmBtn +
+                "</div></div>"
+              );
+            })
+            .join("");
+        },
+        plTracks(d) {
+          const c = document.getElementById("plList"),
+            t = d.tracks || [],
+            cur = d.current_index || 0;
+          document.getElementById("plCnt").textContent = t.length;
+          if (t.length === 0) {
+            c.innerHTML =
+              '<div class="empty" style="padding:40px 20px">No tracks</div>';
+            return;
+          }
+          c.innerHTML = t
+            .map((tr, i) => {
+              const isCur = i === cur,
+                m = Math.floor(tr.duration_sec / 60),
+                s = (tr.duration_sec % 60).toString().padStart(2, "0");
+              return `<div class="pl-item ${isCur ? "active" : ""}" onclick="api.plJump(${i})"><div class="pl-title">${i + 1}. ${tr.title}</div><div class="pl-meta">${m}:${s}</div></div>`;
+            })
+            .join("");
+        },
+        plStatus(d) {
+          if (d.loaded === false) {
+            document.getElementById("plSt").textContent = "Not loaded";
+            document.getElementById("plTr").textContent = "-";
+            document.getElementById("plShuffleStatus").textContent = "Off";
+          } else {
+            document.getElementById("plSt").textContent = d.enabled
+              ? "Enabled"
+              : "Disabled";
+            document.getElementById("plTr").textContent = d.total_tracks || 0;
+            document.getElementById("plShuffleStatus").textContent = d.shuffled
+              ? "On"
+              : "Off";
+          }
+        },
+      };
+      function getReconnectDelay() {
+        const delay = Math.min(
+          1000 * Math.pow(2, reconnectAttempts),
+          maxReconnectDelay,
+        );
+        reconnectAttempts++;
+        return delay;
+      }
+      function connect() {
+        ws = new WebSocket("ws://" + location.host + "/ws");
+        ws.onopen = () => {
+          document.getElementById("st").className = "dot dot-on";
+          document.getElementById("stTxt").textContent = "Connected";
+          reconnectAttempts = 0;
+          api.getDonationStatus();
+          api.plTracks();
+          api.plStatus();
+        };
+        ws.onmessage = (e) => {
+          try {
+            const d = JSON.parse(e.data);
+            ui.update(d);
+            ui.queue(d);
+            api.plStatus();
+            api.plTracks();
+          } catch (err) {}
+        };
+        ws.onclose = () => {
+          document.getElementById("st").className = "dot dot-off";
+          document.getElementById("stTxt").textContent = "Reconnecting...";
+          setTimeout(connect, getReconnectDelay());
+        };
+        ws.onerror = () => {};
+      }
+      window.addEventListener("load", async () => {
+        connect();
+        await new Promise((r) => setTimeout(r, 100));
+        await api.plStatus();
+        await api.plTracks();
+        document.addEventListener("keydown", (e) => {
+          if (e.target.tagName === "INPUT") return;
+          if (e.code === "Space") {
+            e.preventDefault();
+            api.pp();
+          } else if (e.code === "ArrowRight") {
+            e.preventDefault();
+            api.cmd("next");
+          } else if (e.code === "ArrowLeft") {
+            e.preventDefault();
+            api.cmd("previous");
+          }
+        });
+      });
+    </script>
+  </body>
+</html>
