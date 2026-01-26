@@ -3,7 +3,6 @@ project_name: yt-player
 
 before:
   hooks:
-    - go mod init yt-player
     - go mod tidy
 
 builds:
