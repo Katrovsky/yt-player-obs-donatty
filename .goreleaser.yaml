@@ -1,0 +1,64 @@
+version: 2
+project_name: yt-player
+
+before:
+  hooks:
+    - go mod init yt-player
+    - go mod tidy
+
+builds:
+  - id: yt-player
+    main: .
+    binary: yt-player
+    env:
+      - CGO_ENABLED=0
+      - GOEXPERIMENT=greenteagc
+    ldflags:
+      - -s -w
+    flags:
+      - -trimpath
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+
+archives:
+  - id: yt-player
+  - formats: [ 'zip', 'tar.gz' ]
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+    format_overrides:
+      - goos: windows
+      - formats: [ 'zip' ]
+    files:
+      - README.md
+      - LICENSE*
+      - config.sample.json
+
+checksum:
+  name_template: 'checksums.txt'
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - 'typo'
+
+release:
+  draft: false
+  prerelease: auto
+  name_template: "{{.ProjectName}} v{{.Version}}"
