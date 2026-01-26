@@ -1,0 +1,12 @@
+{
+  "port": 8093,
+  "max_duration_minutes": 9,
+  "min_views": 1000,
+  "repeat_limit": 0,
+  "cleanup_after_hours": 48,
+  "max_queue_size": 100,
+  "donation_widget_url": "https://widgets.donatty.com/donations/?ref=YOUR_WIDGET_REF&token=YOUR_WIDGET_TOKEN",
+  "donation_min_amount": 50,
+  "youtube_api_key": "YOUR_YOUTUBE_API_KEY_HERE",
+  "fallback_playlist_url": "https://www.youtube.com/playlist?list=YOUR_PLAYLIST_ID"
+}
