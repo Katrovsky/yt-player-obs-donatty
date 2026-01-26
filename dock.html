@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Player Dock</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+body{background:#1e1e1e;color:#e0e0e0;padding:12px;overflow-x:hidden}
+.now{background:#2d2d2d;border-radius:6px;padding:12px;margin-bottom:12px;border-left:3px solid #27ae60}
+.next{background:#2d2d2d;border-radius:6px;padding:12px;margin-bottom:12px;border-left:3px solid #3498db}
+.next-row{display:flex;align-items:center;gap:8px}
+.next-row .title{flex:1;margin-bottom:0}
+.rm-btn{background:#e74c3c;color:#fff;border:none;width:22px;height:22px;border-radius:4px;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center}
+.rm-btn:hover{opacity:.8}
+.label{font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
+.title{font-size:13px;font-weight:600;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meta{font-size:11px;color:#aaa}
+.controls{display:flex;gap:8px;margin-bottom:12px}
+.btn{flex:1;background:#3498db;color:#fff;border:none;padding:10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:500;transition:opacity .2s}
+.btn:hover{opacity:.8}
+.btn:active{opacity:.6}
+.btn.s{background:#27ae60}
+.btn.pause{background:#f39c12}
+.stats{display:flex;justify-content:space-around;font-size:11px}
+.stat{text-align:center}
+.stat-num{font-size:16px;font-weight:700;color:#f1c40f}
+.stat-label{color:#888;margin-top:2px}
+</style>
+</head>
+<body>
+<div class="now">
+<div class="label">Now Playing</div>
+<div class="title" id="npT">-</div>
+<div class="meta" id="npM">-</div>
+</div>
+<div class="next" id="nextBox" style="display:none">
+<div class="label">Next</div>
+<div class="next-row"><div class="title" id="nxT">-</div><button class="rm-btn" id="nxRm" onclick="api.rm(0)">✕</button></div>
+<div class="meta" id="nxM">-</div>
+</div>
+<div class="stats">
+<div class="stat"><div class="stat-num" id="paid">0</div><div class="stat-label">Paid</div></div>
+<div class="stat"><div class="stat-num" id="free">0</div><div class="stat-label">Free</div></div>
+<div class="stat"><div class="stat-num" id="total">0</div><div class="stat-label">Total</div></div>
+</div>
+<div class="controls">
+<button class="btn" onclick="api.cmd('previous')">&#9664;</button>
+<button class="btn s" onclick="api.pp()" id="ppBtn">&#9654;</button>
+<button class="btn" onclick="api.cmd('next')">&#9654;</button>
+</div>
+<script>
+let ws,currSt='stopped',baseUrl=window.location.origin;
+const api={
+async fetch(e,o={}){try{const r=await fetch(`${baseUrl}${e}`,{method:'POST',...o});return await r.json()}catch(e){return{success:false}}},
+async cmd(c){await this.fetch(`/api/${c}`)},
+async pp(){await this.cmd(currSt==='playing'?'pause':'play')},
+async rm(i){await this.fetch(`/api/remove?index=${i}`)}
+};
+const ui={
+update(d){
+currSt=d.action||'stopped';
+const t=d.current?d.current.title:'-',m=d.current?d.current.added_by||'Unknown':'-';
+document.getElementById('npT').textContent=t;
+document.getElementById('npM').textContent=m;
+const btn=document.getElementById('ppBtn');
+if(currSt==='playing'){btn.innerHTML='&#10074;&#10074;';btn.classList.add('pause')}else{btn.innerHTML='&#9654;';btn.classList.remove('pause')}
+},
+queue(d){
+const qu=d.queue||[],pos=d.position||0;
+const paid=qu.filter(t=>t.is_paid).length,free=qu.filter(t=>!t.is_paid).length;
+document.getElementById('paid').textContent=paid;
+document.getElementById('free').textContent=free;
+document.getElementById('total').textContent=qu.length;
+const nextIdx=pos+1,next=qu[nextIdx],box=document.getElementById('nextBox');
+if(next){box.style.display='block';document.getElementById('nxT').textContent=next.title;document.getElementById('nxM').textContent=next.added_by||'Unknown'}else{box.style.display='none'}
+}
+};
+function connect(){
+ws=new WebSocket('ws://'+location.host+'/ws');
+ws.onmessage=e=>{try{const d=JSON.parse(e.data);ui.update(d);ui.queue(d)}catch(err){}};
+ws.onclose=()=>setTimeout(connect,3000);
+ws.onerror=()=>{}
+}
+window.addEventListener('load',connect);
+</script>
+</body>
+</html>
