@@ -483,4 +483,4 @@ ws.onclose = () => {
 
 ## Как заказывать музыку за баллы?
 
-Для настройки наград используйте ботов типа [streamerbot](https://streamer.bot/) или [Firebot](https://firebot.app/) (рекомендую второй вариант). По вопросам настройки Firebot можете обратиться в Telegram-канал [Key Twitch](https://t.me/KeyTwitch)? я использую только его.
+Для настройки наград используйте ботов типа [streamerbot](https://streamer.bot/) или [Firebot](https://firebot.app/) (рекомендую второй вариант). По вопросам настройки Firebot можете обратиться в Telegram-канал [Key Twitch](https://t.me/KeyTwitch), я использую только его.
