@@ -6,9 +6,10 @@ before:
     - go mod tidy
 
 builds:
-  - id: yt-player
+  # Linux: amd64, arm64, arm (32-bit для роутеров и одноплатников)
+  - id: mm-tool-linux
     main: .
-    binary: yt-player
+    binary: mm-tool
     env:
       - CGO_ENABLED=0
       - GOEXPERIMENT=greenteagc
@@ -18,24 +19,48 @@ builds:
       - -trimpath
     goos:
       - linux
+    goarch:
+      - amd64
+      - arm64
+      - arm
+    goarm:
+      - 6
+      - 7
+  # Windows, macOS: только amd64 и arm64 (32-bit arm не поддерживается)
+  - id: mm-tool-other
+    main: .
+    binary: mm-tool
+    env:
+      - CGO_ENABLED=0
+      - GOEXPERIMENT=greenteagc
+    ldflags:
+      - -s -w
+    flags:
+      - -trimpath
+    goos:
       - windows
       - darwin
     goarch:
       - amd64
       - arm64
-    ignore:
-      - goos: windows
-        goarch: arm64
 
 archives:
   - id: yt-player
-    formats: [ 'zip', 'tar.gz' ]
+    ids:
+      - yt-player-linux
+      - yt-player-other
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
     name_template: >-
       {{ .ProjectName }}_
-      {{- .Version }}_
-      {{- title .Os }}_
+      {{ .Version }}_
+      {{ title .Os }}_
       {{- if eq .Arch "amd64" }}x86_64
-      {{- else if eq .Arch "386" }}i386
+      {{- else if eq .Arch "arm" }}armv{{ .Arm }}
       {{- else }}{{ .Arch }}{{ end }}
     files:
       - README.md
@@ -55,6 +80,9 @@ changelog:
       - 'typo'
 
 release:
+  github:
+    owner: Katrovsky
+    name: yt-player
   draft: false
   prerelease: auto
-  name_template: "{{.ProjectName}} v{{.Version}}"
+  name_template: "{{ .ProjectName }} v{{ .Version }}"
