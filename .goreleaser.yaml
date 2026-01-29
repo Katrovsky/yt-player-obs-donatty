@@ -82,7 +82,7 @@ changelog:
 release:
   github:
     owner: Katrovsky
-    name: yt-player
+    name: yt-player-obs-donatty
   draft: false
   prerelease: auto
   name_template: "{{ .ProjectName }} v{{ .Version }}"
