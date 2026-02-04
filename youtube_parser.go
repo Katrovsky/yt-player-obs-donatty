@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"sort"
 	"strconv"
 	"time"
 )
@@ -45,17 +46,22 @@ func ExtractYouTubeID(text string) string {
 }
 
 func GetYouTubeVideoInfo(vid string) (*YouTubeVideoInfo, error) {
+	return GetYouTubeVideoInfoWithClient(vid, &http.Client{Timeout: 20 * time.Second})
+}
+
+func GetYouTubeVideoInfoWithClient(vid string, client *http.Client) (*YouTubeVideoInfo, error) {
 	ytMu.RLock()
 	if cached, ok := ytCache[vid]; ok {
 		ytMu.RUnlock()
 		return cached, nil
 	}
 	ytMu.RUnlock()
+
 	if conf.YouTubeAPIKey == "" {
 		return nil, fmt.Errorf("YouTube API key not configured")
 	}
 	url := fmt.Sprintf("https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,statistics&id=%s&key=%s", vid, conf.YouTubeAPIKey)
-	client := &http.Client{Timeout: 10 * time.Second}
+
 	resp, err := client.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch video info: %w", err)
@@ -71,6 +77,7 @@ func GetYouTubeVideoInfo(vid string) (*YouTubeVideoInfo, error) {
 	if len(apiResp.Items) == 0 {
 		return nil, fmt.Errorf("video not found")
 	}
+
 	item := apiResp.Items[0]
 	dur, err := parseDuration(item.ContentDetails.Duration)
 	if err != nil {
@@ -80,17 +87,35 @@ func GetYouTubeVideoInfo(vid string) (*YouTubeVideoInfo, error) {
 	if item.Statistics.ViewCount != "" {
 		views, _ = strconv.Atoi(item.Statistics.ViewCount)
 	}
+
 	info := &YouTubeVideoInfo{Title: item.Snippet.Title, Duration: dur, Views: views}
+
 	ytMu.Lock()
 	if len(ytCache) >= 100 {
-		for k := range ytCache {
-			delete(ytCache, k)
-			break
-		}
+		deleteOldestFromCache()
 	}
 	ytCache[vid] = info
 	ytMu.Unlock()
+
 	return info, nil
+}
+
+func deleteOldestFromCache() {
+	keys := make([]string, 0, len(ytCache))
+	for k := range ytCache {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		return ytCache[keys[i]].Views < ytCache[keys[j]].Views
+	})
+
+	numToRemove := len(ytCache) - 90
+	if numToRemove <= 0 {
+		numToRemove = 1
+	}
+	for i := 0; i < numToRemove && i < len(keys); i++ {
+		delete(ytCache, keys[i])
+	}
 }
 
 func parseDuration(iso string) (int, error) {
@@ -99,6 +124,7 @@ func parseDuration(iso string) (int, error) {
 	if len(matches) == 0 {
 		return 0, fmt.Errorf("invalid duration format")
 	}
+
 	h, m, s := 0, 0, 0
 	if matches[1] != "" {
 		h, _ = strconv.Atoi(matches[1])
@@ -109,5 +135,6 @@ func parseDuration(iso string) (int, error) {
 	if matches[3] != "" {
 		s, _ = strconv.Atoi(matches[3])
 	}
+
 	return h*3600 + m*60 + s, nil
 }

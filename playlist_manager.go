@@ -63,8 +63,9 @@ func (pm *PlaylistManager) LoadPlaylist(pu string) error {
 		return err
 	}
 	sc, fc := 0, 0
+	client := &http.Client{Timeout: 20 * time.Second}
 	for _, vid := range vids {
-		vi, err := GetYouTubeVideoInfo(vid)
+		vi, err := GetYouTubeVideoInfoWithClient(vid, client)
 		if err != nil {
 			fc++
 			continue
@@ -89,7 +90,7 @@ func (pm *PlaylistManager) fetchAllVideoIDs(pid string) ([]string, error) {
 	}
 	var vids []string
 	npt := ""
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := &http.Client{Timeout: 20 * time.Second}
 	for {
 		url := fmt.Sprintf("https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=%s&maxResults=50&key=%s", pid, conf.YouTubeAPIKey)
 		if npt != "" {
@@ -154,8 +155,8 @@ func (pm *PlaylistManager) createShuffleMap() {
 	for i := range indices {
 		indices[i] = i
 	}
-	rand.Seed(time.Now().UnixNano())
-	rand.Shuffle(len(indices), func(i, j int) {
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	rng.Shuffle(len(indices), func(i, j int) {
 		indices[i], indices[j] = indices[j], indices[i]
 	})
 	for shuffled, original := range indices {
@@ -169,7 +170,6 @@ func (pm *PlaylistManager) GetNext() *Track {
 	if !pm.isEnabled || len(pm.tracks) == 0 {
 		return nil
 	}
-
 	actualIndex := pm.currentIndex
 	if pm.isShuffled {
 		if shuffledPos, ok := pm.shuffleMap[pm.currentIndex]; ok {
@@ -189,7 +189,6 @@ func (pm *PlaylistManager) AdvanceToNext() {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 	pm.currentIndex++
-
 	if pm.currentIndex >= len(pm.tracks) {
 		pm.currentIndex = 0
 		if pm.isShuffled {
@@ -202,7 +201,6 @@ func (pm *PlaylistManager) GoToPrevious() {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 	pm.currentIndex--
-
 	if pm.currentIndex < 0 {
 		pm.currentIndex = len(pm.tracks) - 1
 	}
@@ -226,7 +224,6 @@ func (pm *PlaylistManager) Shuffle() {
 		pm.createShuffleMap()
 	}
 	log.Printf("Playlist shuffle %s", map[bool]string{true: "enabled", false: "disabled"}[pm.isShuffled])
-
 	mu.Lock()
 	dirty = true
 	bc <- currentState()
@@ -302,7 +299,6 @@ func handlePlaylistSet(w http.ResponseWriter, r *http.Request) {
 	pm = newPm
 	dirty = true
 	mu.Unlock()
-
 	bc <- currentState()
 	respondJSON(w, http.StatusOK, APIResponse{Success: true, Message: "Playlist loaded successfully", Data: newPm.GetStatus()})
 }
@@ -329,7 +325,6 @@ func handlePlaylistEnable(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	mu.Unlock()
-
 	if cur != nil {
 		bc <- currentState()
 	}
@@ -434,7 +429,6 @@ func handlePlaylistJump(w http.ResponseWriter, r *http.Request) {
 		dirty = true
 	}
 	mu.Unlock()
-
 	bc <- currentState()
 	respondJSON(w, http.StatusOK, APIResponse{Success: true, Message: "Jumped to track"})
 }
