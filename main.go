@@ -7,11 +7,13 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/gorilla/websocket"
 )
 
@@ -145,17 +147,28 @@ type APIResponse struct {
 
 func main() {
 	loadConfig()
-
 	routes := map[string]http.HandlerFunc{
-		"/api/add": handleAddByURL, "/api/add-url": handleAddByURL, "/api/play": handlePlay,
-		"/api/pause": handlePause, "/api/stop": handleStop, "/api/next": handleNext,
-		"/api/previous": handlePrev, "/api/status": handleStatus, "/api/queue": handleQueueList,
-		"/api/nowplaying": handleNowPlaying, "/api/remove": handleRemove, "/api/clear": handleClear,
-		"/api/playlist/set": handlePlaylistSet, "/api/playlist/enable": handlePlaylistEnable,
-		"/api/playlist/disable": handlePlaylistDisable, "/api/playlist/status": handlePlaylistStatus,
-		"/api/playlist/reload": handlePlaylistReload, "/api/playlist/tracks": handlePlaylistTracks,
-		"/api/playlist/jump": handlePlaylistJump, "/api/playlist/shuffle": handlePlaylistShuffle,
-		"/api/donation/status": handleDonationStatus,
+		"/api/add":              handleAddByURL,
+		"/api/add-url":          handleAddByURL,
+		"/api/play":             handlePlay,
+		"/api/pause":            handlePause,
+		"/api/stop":             handleStop,
+		"/api/next":             handleNext,
+		"/api/previous":         handlePrev,
+		"/api/status":           handleStatus,
+		"/api/queue":            handleQueueList,
+		"/api/nowplaying":       handleNowPlaying,
+		"/api/remove":           handleRemove,
+		"/api/clear":            handleClear,
+		"/api/playlist/set":     handlePlaylistSet,
+		"/api/playlist/enable":  handlePlaylistEnable,
+		"/api/playlist/disable": handlePlaylistDisable,
+		"/api/playlist/status":  handlePlaylistStatus,
+		"/api/playlist/reload":  handlePlaylistReload,
+		"/api/playlist/tracks":  handlePlaylistTracks,
+		"/api/playlist/jump":    handlePlaylistJump,
+		"/api/playlist/shuffle": handlePlaylistShuffle,
+		"/api/donation/status":  handleDonationStatus,
 	}
 	for p, h := range routes {
 		http.HandleFunc(p, corsMiddleware(h))
@@ -208,20 +221,26 @@ func loadConfig() {
 }
 
 func watchConfig() {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-	var lastMod time.Time
-	for range ticker.C {
-		info, err := os.Stat("config.json")
-		if err != nil {
-			continue
-		}
-		if info.ModTime() != lastMod && !lastMod.IsZero() {
-			lastMod = info.ModTime()
-			reloadConfig()
-		}
-		if lastMod.IsZero() {
-			lastMod = info.ModTime()
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		log.Fatal("Error creating watcher:", err)
+	}
+	defer watcher.Close()
+
+	err = watcher.Add(filepath.Dir("config.json"))
+	if err != nil {
+		log.Fatal("Error adding config directory to watcher:", err)
+	}
+
+	for {
+		select {
+		case event := <-watcher.Events:
+			if event.Name == "config.json" && event.Has(fsnotify.Write) {
+				log.Println("Config file changed, reloading...")
+				reloadConfig()
+			}
+		case err := <-watcher.Errors:
+			log.Println("Watcher error:", err)
 		}
 	}
 }
@@ -260,7 +279,7 @@ func respondJSON(w http.ResponseWriter, sc int, resp APIResponse) {
 	json.NewEncoder(w).Encode(resp)
 }
 
-func validateTrack(t *Track) error {
+func validateTrack(t Track) error {
 	if conf.MaxDurationMinutes > 0 && t.DurationSec > conf.MaxDurationMinutes*60 {
 		return fmt.Errorf("track too long (max %d minutes)", conf.MaxDurationMinutes)
 	}
@@ -279,7 +298,7 @@ func validateAndAddTrack(vid, by string, paid bool) error {
 		return err
 	}
 	t := &Track{VideoID: vid, Title: vi.Title, DurationSec: vi.Duration, Views: vi.Views, AddedAt: time.Now(), AddedBy: by, IsPaid: paid}
-	if err := validateTrack(t); err != nil {
+	if err := validateTrack(*t); err != nil {
 		return err
 	}
 	mu.Lock()
@@ -576,7 +595,6 @@ func handleWS(w http.ResponseWriter, r *http.Request) {
 	mu.Lock()
 	clients[conn] = true
 	mu.Unlock()
-
 	mu.RLock()
 	st := currentState()
 	mu.RUnlock()
