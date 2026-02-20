@@ -17,7 +17,6 @@
     --txt2:     #7e7e8f;
     --txt3:     #4a4a58;
     --accent:   #5b6af0;
-    --green:    #34c77b;
     --amber:    #f59e0b;
     --red:      #f04f4f;
   }
@@ -26,55 +25,57 @@
     background: var(--bg);
     color: var(--txt);
     font-family: 'DM Sans', sans-serif;
-    padding: 10px;
-    min-width: 220px;
+    padding: 8px;
   }
 
   .track-card {
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 10px;
-    padding: 12px 14px;
+    padding: 10px 12px;
     margin-bottom: 8px;
   }
 
-  .row {
+  .track-row {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
   }
-  .row + .row {
-    margin-top: 8px;
-    padding-top: 8px;
+  .track-row + .track-row {
+    margin-top: 7px;
+    padding-top: 7px;
     border-top: 1px solid var(--border);
   }
 
   .track-label {
-    font-size: 0.62rem;
+    font-size: 0.6rem;
     font-weight: 600;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--txt3);
-    width: 32px;
+    width: 28px;
     flex-shrink: 0;
   }
 
   .track-info { flex: 1; min-width: 0; }
   .track-title {
-    font-size: 0.82rem;
+    font-size: 0.8rem;
     font-weight: 500;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
   .track-by {
-    font-size: 0.7rem;
+    font-size: 0.68rem;
     color: var(--txt2);
     margin-top: 1px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .rm-btn {
-    width: 20px; height: 20px;
+    width: 18px; height: 18px;
     border-radius: 4px;
     border: 1px solid var(--border2);
     background: transparent;
@@ -90,11 +91,13 @@
 
   .controls {
     display: flex;
+    justify-content: center;
+    align-items: center;
     gap: 6px;
   }
+
   .ctrl {
-    flex: 1;
-    height: 34px;
+    width: 36px; height: 32px;
     border-radius: 7px;
     border: 1px solid var(--border2);
     background: var(--surface);
@@ -103,41 +106,41 @@
     align-items: center;
     justify-content: center;
     cursor: pointer;
+    flex-shrink: 0;
     transition: border-color 0.12s, background 0.12s, color 0.12s, transform 0.08s;
   }
-  .ctrl:hover { border-color: var(--border2); background: var(--surface2); color: var(--txt); }
-  .ctrl:active { transform: scale(0.94); }
+  .ctrl:hover { background: var(--surface2); color: var(--txt); }
+  .ctrl:active { transform: scale(0.93); }
+
   .ctrl.play {
+    width: 48px;
     background: var(--accent);
     border-color: var(--accent);
     color: #fff;
   }
   .ctrl.play:hover { background: #4a59e0; border-color: #4a59e0; }
-  .ctrl.play.paused {
-    background: var(--amber);
-    border-color: var(--amber);
-  }
+  .ctrl.play.paused { background: var(--amber); border-color: var(--amber); color: #fff; }
   .ctrl.play.paused:hover { background: #d97706; border-color: #d97706; }
 </style>
 </head>
 <body>
 
 <div class="track-card">
-  <div class="row">
+  <div class="track-row">
     <span class="track-label">Now</span>
     <div class="track-info">
       <div class="track-title" id="npTitle">—</div>
       <div class="track-by" id="npBy">—</div>
     </div>
   </div>
-  <div class="row" id="nextRow" style="display:none">
+  <div class="track-row" id="nextRow" style="display:none">
     <span class="track-label">Next</span>
     <div class="track-info">
       <div class="track-title" id="nxTitle">—</div>
       <div class="track-by" id="nxBy">—</div>
     </div>
     <button class="rm-btn" onclick="api.rm(0)">
-      <svg width="9" height="9" viewBox="0 0 24 24" fill="none">
+      <svg width="8" height="8" viewBox="0 0 24 24" fill="none">
         <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
       </svg>
     </button>
@@ -146,17 +149,17 @@
 
 <div class="controls">
   <div class="ctrl" onclick="api.cmd('previous')">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
       <path d="M19 18V6L9 12L19 18ZM21 18V6H19V18H21Z" fill="currentColor"/>
     </svg>
   </div>
   <div class="ctrl play" id="ppBtn" onclick="api.pp()">
-    <svg id="ppIcon" width="15" height="15" viewBox="0 0 24 24" fill="none">
+    <svg id="ppIcon" width="14" height="14" viewBox="0 0 24 24" fill="none">
       <path d="M8 5V19L19 12L8 5Z" fill="currentColor"/>
     </svg>
   </div>
   <div class="ctrl" onclick="api.cmd('next')">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
       <path d="M5 18V6L15 12L5 18ZM3 18V6H5V18H3Z" fill="currentColor"/>
     </svg>
   </div>
@@ -183,19 +186,19 @@ function update(d) {
   const pos = d.position || 0;
 
   document.getElementById('npTitle').textContent = t ? t.title : '—';
-  document.getElementById('npBy').textContent = t ? (t.added_by || 'Unknown') : '—';
+  document.getElementById('npBy').textContent    = t ? (t.added_by || 'Unknown') : '—';
 
   const next = qu[pos + 1];
   const nextRow = document.getElementById('nextRow');
   if (next) {
     nextRow.style.display = 'flex';
     document.getElementById('nxTitle').textContent = next.title;
-    document.getElementById('nxBy').textContent = next.added_by || 'Unknown';
+    document.getElementById('nxBy').textContent    = next.added_by || 'Unknown';
   } else {
     nextRow.style.display = 'none';
   }
 
-  const btn = document.getElementById('ppBtn');
+  const btn  = document.getElementById('ppBtn');
   const icon = document.getElementById('ppIcon');
   if (currSt === 'playing') {
     btn.classList.remove('paused');
@@ -209,8 +212,8 @@ function update(d) {
 function connect() {
   ws = new WebSocket('ws://' + location.host + '/ws');
   ws.onmessage = e => { try { update(JSON.parse(e.data)); } catch (_) {} };
-  ws.onclose = () => setTimeout(connect, 3000);
-  ws.onerror = () => {};
+  ws.onclose   = () => setTimeout(connect, 3000);
+  ws.onerror   = () => {};
 }
 
 window.addEventListener('load', connect);
