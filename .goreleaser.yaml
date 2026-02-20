@@ -6,13 +6,11 @@ before:
     - go mod tidy
 
 builds:
-  # Linux: amd64, arm64, arm (32-bit для роутеров и одноплатников)
   - id: yt-player-linux
     main: .
     binary: yt-player
     env:
       - CGO_ENABLED=0
-      - GOEXPERIMENT=greenteagc
     ldflags:
       - -s -w
     flags:
@@ -26,13 +24,11 @@ builds:
     goarm:
       - 6
       - 7
-  # Windows, macOS: только amd64 и arm64 (32-bit arm не поддерживается)
   - id: yt-player-other
     main: .
     binary: yt-player
     env:
       - CGO_ENABLED=0
-      - GOEXPERIMENT=greenteagc
     ldflags:
       - -s -w
     flags:
@@ -65,7 +61,6 @@ archives:
     files:
       - README.md
       - LICENSE*
-      - config.sample.json
 
 checksum:
   name_template: 'checksums.txt'
