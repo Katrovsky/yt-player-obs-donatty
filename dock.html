@@ -4,85 +4,216 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Player Dock</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400&display=swap" rel="stylesheet">
 <style>
-*{margin:0;padding:0;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
-body{background:#1e1e1e;color:#e0e0e0;padding:12px;overflow-x:hidden}
-.now{background:#2d2d2d;border-radius:6px;padding:12px;margin-bottom:12px;border-left:3px solid #27ae60}
-.next{background:#2d2d2d;border-radius:6px;padding:12px;margin-bottom:12px;border-left:3px solid #3498db}
-.next-row{display:flex;align-items:center;gap:8px}
-.next-row .title{flex:1;margin-bottom:0}
-.rm-btn{background:#e74c3c;color:#fff;border:none;width:22px;height:22px;border-radius:4px;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center}
-.rm-btn:hover{opacity:.8}
-.label{font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
-.title{font-size:13px;font-weight:600;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.meta{font-size:11px;color:#aaa}
-.controls{display:flex;gap:8px;margin-bottom:12px}
-.btn{flex:1;background:#3498db;color:#fff;border:none;padding:10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:500;transition:opacity .2s}
-.btn:hover{opacity:.8}
-.btn:active{opacity:.6}
-.btn.s{background:#27ae60}
-.btn.pause{background:#f39c12}
-.stats{display:flex;justify-content:space-around;font-size:11px}
-.stat{text-align:center}
-.stat-num{font-size:16px;font-weight:700;color:#f1c40f}
-.stat-label{color:#888;margin-top:2px}
+  :root {
+    --bg:       #0f0f11;
+    --surface:  #17171a;
+    --surface2: #1e1e22;
+    --border:   #2a2a30;
+    --border2:  #333339;
+    --txt:      #e8e8ed;
+    --txt2:     #7e7e8f;
+    --txt3:     #4a4a58;
+    --accent:   #5b6af0;
+    --green:    #34c77b;
+    --amber:    #f59e0b;
+    --red:      #f04f4f;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--txt);
+    font-family: 'DM Sans', sans-serif;
+    padding: 10px;
+    min-width: 220px;
+  }
+
+  .track-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 8px;
+  }
+
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .row + .row {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+  }
+
+  .track-label {
+    font-size: 0.62rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--txt3);
+    width: 32px;
+    flex-shrink: 0;
+  }
+
+  .track-info { flex: 1; min-width: 0; }
+  .track-title {
+    font-size: 0.82rem;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .track-by {
+    font-size: 0.7rem;
+    color: var(--txt2);
+    margin-top: 1px;
+  }
+
+  .rm-btn {
+    width: 20px; height: 20px;
+    border-radius: 4px;
+    border: 1px solid var(--border2);
+    background: transparent;
+    color: var(--txt3);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: border-color 0.12s, color 0.12s;
+  }
+  .rm-btn:hover { border-color: var(--red); color: var(--red); }
+
+  .controls {
+    display: flex;
+    gap: 6px;
+  }
+  .ctrl {
+    flex: 1;
+    height: 34px;
+    border-radius: 7px;
+    border: 1px solid var(--border2);
+    background: var(--surface);
+    color: var(--txt2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: border-color 0.12s, background 0.12s, color 0.12s, transform 0.08s;
+  }
+  .ctrl:hover { border-color: var(--border2); background: var(--surface2); color: var(--txt); }
+  .ctrl:active { transform: scale(0.94); }
+  .ctrl.play {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+  .ctrl.play:hover { background: #4a59e0; border-color: #4a59e0; }
+  .ctrl.play.paused {
+    background: var(--amber);
+    border-color: var(--amber);
+  }
+  .ctrl.play.paused:hover { background: #d97706; border-color: #d97706; }
 </style>
 </head>
 <body>
-<div class="now">
-<div class="label">Now Playing</div>
-<div class="title" id="npT">-</div>
-<div class="meta" id="npM">-</div>
+
+<div class="track-card">
+  <div class="row">
+    <span class="track-label">Now</span>
+    <div class="track-info">
+      <div class="track-title" id="npTitle">—</div>
+      <div class="track-by" id="npBy">—</div>
+    </div>
+  </div>
+  <div class="row" id="nextRow" style="display:none">
+    <span class="track-label">Next</span>
+    <div class="track-info">
+      <div class="track-title" id="nxTitle">—</div>
+      <div class="track-by" id="nxBy">—</div>
+    </div>
+    <button class="rm-btn" onclick="api.rm(0)">
+      <svg width="9" height="9" viewBox="0 0 24 24" fill="none">
+        <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+      </svg>
+    </button>
+  </div>
 </div>
-<div class="next" id="nextBox" style="display:none">
-<div class="label">Next</div>
-<div class="next-row"><div class="title" id="nxT">-</div><button class="rm-btn" id="nxRm" onclick="api.rm(0)">✕</button></div>
-<div class="meta" id="nxM">-</div>
-</div>
-<div class="stats">
-<div class="stat"><div class="stat-num" id="paid">0</div><div class="stat-label">Paid</div></div>
-<div class="stat"><div class="stat-num" id="free">0</div><div class="stat-label">Free</div></div>
-<div class="stat"><div class="stat-num" id="total">0</div><div class="stat-label">Total</div></div>
-</div>
+
 <div class="controls">
-<button class="btn" onclick="api.cmd('previous')">&#9664;</button>
-<button class="btn s" onclick="api.pp()" id="ppBtn">&#9654;</button>
-<button class="btn" onclick="api.cmd('next')">&#9654;</button>
+  <div class="ctrl" onclick="api.cmd('previous')">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+      <path d="M19 18V6L9 12L19 18ZM21 18V6H19V18H21Z" fill="currentColor"/>
+    </svg>
+  </div>
+  <div class="ctrl play" id="ppBtn" onclick="api.pp()">
+    <svg id="ppIcon" width="15" height="15" viewBox="0 0 24 24" fill="none">
+      <path d="M8 5V19L19 12L8 5Z" fill="currentColor"/>
+    </svg>
+  </div>
+  <div class="ctrl" onclick="api.cmd('next')">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+      <path d="M5 18V6L15 12L5 18ZM3 18V6H5V18H3Z" fill="currentColor"/>
+    </svg>
+  </div>
 </div>
+
 <script>
-let ws,currSt='stopped',baseUrl=window.location.origin;
-const api={
-async fetch(e,o={}){try{const r=await fetch(`${baseUrl}${e}`,{method:'POST',...o});return await r.json()}catch(e){return{success:false}}},
-async cmd(c){await this.fetch(`/api/${c}`)},
-async pp(){await this.cmd(currSt==='playing'?'pause':'play')},
-async rm(i){await this.fetch(`/api/remove?index=${i}`)}
+let ws, currSt = 'stopped';
+const base = window.location.origin;
+
+const api = {
+  async fetch(path) {
+    try { const r = await fetch(base + path, { method: 'POST' }); return await r.json(); }
+    catch (e) { return { success: false }; }
+  },
+  async cmd(c) { await this.fetch(`/api/${c}`); },
+  async pp() { await this.cmd(currSt === 'playing' ? 'pause' : 'play'); },
+  async rm(i) { await this.fetch(`/api/remove?index=${i}`); },
 };
-const ui={
-update(d){
-currSt=d.action||'stopped';
-const t=d.current?d.current.title:'-',m=d.current?d.current.added_by||'Unknown':'-';
-document.getElementById('npT').textContent=t;
-document.getElementById('npM').textContent=m;
-const btn=document.getElementById('ppBtn');
-if(currSt==='playing'){btn.innerHTML='&#10074;&#10074;';btn.classList.add('pause')}else{btn.innerHTML='&#9654;';btn.classList.remove('pause')}
-},
-queue(d){
-const qu=d.queue||[],pos=d.position||0;
-const paid=qu.filter(t=>t.is_paid).length,free=qu.filter(t=>!t.is_paid).length;
-document.getElementById('paid').textContent=paid;
-document.getElementById('free').textContent=free;
-document.getElementById('total').textContent=qu.length;
-const nextIdx=pos+1,next=qu[nextIdx],box=document.getElementById('nextBox');
-if(next){box.style.display='block';document.getElementById('nxT').textContent=next.title;document.getElementById('nxM').textContent=next.added_by||'Unknown'}else{box.style.display='none'}
+
+function update(d) {
+  currSt = d.action || 'stopped';
+  const t = d.current;
+  const qu = d.queue || [];
+  const pos = d.position || 0;
+
+  document.getElementById('npTitle').textContent = t ? t.title : '—';
+  document.getElementById('npBy').textContent = t ? (t.added_by || 'Unknown') : '—';
+
+  const next = qu[pos + 1];
+  const nextRow = document.getElementById('nextRow');
+  if (next) {
+    nextRow.style.display = 'flex';
+    document.getElementById('nxTitle').textContent = next.title;
+    document.getElementById('nxBy').textContent = next.added_by || 'Unknown';
+  } else {
+    nextRow.style.display = 'none';
+  }
+
+  const btn = document.getElementById('ppBtn');
+  const icon = document.getElementById('ppIcon');
+  if (currSt === 'playing') {
+    btn.classList.remove('paused');
+    icon.innerHTML = '<path d="M14 19V5H18V19H14ZM6 19V5H10V19H6Z" fill="currentColor"/>';
+  } else {
+    btn.classList.add('paused');
+    icon.innerHTML = '<path d="M8 5V19L19 12L8 5Z" fill="currentColor"/>';
+  }
 }
-};
-function connect(){
-ws=new WebSocket('ws://'+location.host+'/ws');
-ws.onmessage=e=>{try{const d=JSON.parse(e.data);ui.update(d);ui.queue(d)}catch(err){}};
-ws.onclose=()=>setTimeout(connect,3000);
-ws.onerror=()=>{}
+
+function connect() {
+  ws = new WebSocket('ws://' + location.host + '/ws');
+  ws.onmessage = e => { try { update(JSON.parse(e.data)); } catch (_) {} };
+  ws.onclose = () => setTimeout(connect, 3000);
+  ws.onerror = () => {};
 }
-window.addEventListener('load',connect);
+
+window.addEventListener('load', connect);
 </script>
 </body>
 </html>
