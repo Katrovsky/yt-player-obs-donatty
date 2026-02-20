@@ -421,6 +421,10 @@ func handleStop(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleNext(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		respondJSON(w, http.StatusMethodNotAllowed, APIResponse{Success: false, Message: "Method not allowed"})
+		return
+	}
 	mu.Lock()
 	defer mu.Unlock()
 	if cur != nil {
@@ -462,6 +466,10 @@ func playNext() {
 }
 
 func handlePrev(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		respondJSON(w, http.StatusMethodNotAllowed, APIResponse{Success: false, Message: "Method not allowed"})
+		return
+	}
 	mu.Lock()
 	defer mu.Unlock()
 	if len(hist) == 0 {
