@@ -13,13 +13,15 @@ import (
 	"time"
 )
 
+const seenDonationsMaxSize = 500
+
 type DonationMonitor struct {
 	widgetURL     string
 	minAmount     int
 	widgetID      string
 	widgetToken   string
 	accessToken   string
-	seenDonations map[string]bool
+	seenDonations map[string]time.Time
 	mu            sync.Mutex
 	backoff       time.Duration
 }
@@ -49,7 +51,7 @@ func NewDonationMonitor(wu string, ma int) *DonationMonitor {
 	dm := &DonationMonitor{
 		widgetURL:     wu,
 		minAmount:     ma,
-		seenDonations: make(map[string]bool),
+		seenDonations: make(map[string]time.Time),
 		backoff:       10 * time.Second,
 	}
 	if err := dm.parseWidgetURL(); err != nil {
@@ -169,16 +171,17 @@ func (dm *DonationMonitor) processDonationEvent(data string) {
 		return
 	}
 	dm.mu.Lock()
-	if dm.seenDonations[dd.RefID] {
+	if _, seen := dm.seenDonations[dd.RefID]; seen {
 		dm.mu.Unlock()
 		log.Printf("Donation already processed: %s", dd.RefID)
 		return
 	}
-	dm.seenDonations[dd.RefID] = true
-	dm.mu.Unlock()
-	if len(dm.seenDonations) > 1000 {
-		dm.cleanupSeenDonations()
+	dm.seenDonations[dd.RefID] = time.Now()
+	if len(dm.seenDonations) > seenDonationsMaxSize {
+		dm.evictOldestDonation()
 	}
+	dm.mu.Unlock()
+
 	vid := ExtractYouTubeID(dd.Message)
 	if vid == "" {
 		log.Printf("No YouTube link in donation from %s", dd.DisplayName)
@@ -188,12 +191,17 @@ func (dm *DonationMonitor) processDonationEvent(data string) {
 	go dm.addDonationTrack(vid, dd.DisplayName)
 }
 
-func (dm *DonationMonitor) cleanupSeenDonations() {
-	dm.mu.Lock()
-	defer dm.mu.Unlock()
-	if len(dm.seenDonations) > 500 {
-		dm.seenDonations = make(map[string]bool)
-		log.Println("Cleaned donation cache")
+func (dm *DonationMonitor) evictOldestDonation() {
+	var oldestKey string
+	var oldestTime time.Time
+	for k, t := range dm.seenDonations {
+		if oldestKey == "" || t.Before(oldestTime) {
+			oldestKey = k
+			oldestTime = t
+		}
+	}
+	if oldestKey != "" {
+		delete(dm.seenDonations, oldestKey)
 	}
 }
 
