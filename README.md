@@ -144,6 +144,7 @@
 
 1. Скачать [Servy](https://github.com/aelassas/servy/releases/latest)
 2. После установки сконфигурируйте сервис, внимательно заполнив минимально необходимые поля:
+
 - Название сервиса
 - Путь к файлу `yt-player.exe`
 - Путь к каталогу (иначе приложение не сможет читать файл конфигурации, который должен лежать в том же каталоге)
@@ -160,19 +161,19 @@
 3. Открыть командную строку от администратора в каталоге с распакованным nssm.exe
 
 4. Установить сервис:
-   
+
    ```cmd
    nssm.exe install YouTubePlayer "C:\путь\к\yt-player.exe"
    ```
 
 5. Настроить рабочую директорию:
-   
+
    ```cmd
    nssm.exe set YouTubePlayer AppDirectory "C:\путь\к\папке"
    ```
 
 6. Запустить сервис:
-   
+
    ```cmd
    nssm.exe start YouTubePlayer
    ```
@@ -489,6 +490,5 @@ ws.onclose = () => {
 
 ## Скриншоты
 
-<img title="dashboard" src="dashboard.png" alt="Dashboard" data-align="center">
-
-<img title="dock" src="dock.png" alt="OBS Dock" data-align="center">
+![Dashboard](dashboard.png)
+![OBS Dock](dock.png)
