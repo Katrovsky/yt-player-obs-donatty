@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
-	"sort"
 	"strconv"
 	"time"
 )
@@ -14,6 +13,7 @@ type YouTubeVideoInfo struct {
 	Title    string
 	Duration int
 	Views    int
+	cachedAt time.Time
 }
 
 type YouTubeAPIResponse struct {
@@ -30,16 +30,17 @@ type YouTubeAPIResponse struct {
 	} `json:"items"`
 }
 
-var youtubeRegex = []*regexp.Regexp{
-	regexp.MustCompile(`(?:youtube\.com/watch\?v=|youtu\.be/)([a-zA-Z0-9_-]{11})`),
-	regexp.MustCompile(`\b([a-zA-Z0-9_-]{11})\b`),
-}
+var youtubeIDRegex = regexp.MustCompile(`(?:youtube\.com/watch\?v=|youtu\.be/)([a-zA-Z0-9_-]{11})`)
 
 func ExtractYouTubeID(text string) string {
-	for _, re := range youtubeRegex {
-		matches := re.FindStringSubmatch(text)
-		if len(matches) > 1 {
-			return matches[1]
+	matches := youtubeIDRegex.FindStringSubmatch(text)
+	if len(matches) > 1 {
+		return matches[1]
+	}
+	if len(text) == 11 {
+		matched, _ := regexp.MatchString(`^[a-zA-Z0-9_-]{11}$`, text)
+		if matched {
+			return text
 		}
 	}
 	return ""
@@ -88,11 +89,11 @@ func GetYouTubeVideoInfoWithClient(vid string, client *http.Client) (*YouTubeVid
 		views, _ = strconv.Atoi(item.Statistics.ViewCount)
 	}
 
-	info := &YouTubeVideoInfo{Title: item.Snippet.Title, Duration: dur, Views: views}
+	info := &YouTubeVideoInfo{Title: item.Snippet.Title, Duration: dur, Views: views, cachedAt: time.Now()}
 
 	ytMu.Lock()
 	if len(ytCache) >= 100 {
-		deleteOldestFromCache()
+		evictOldestFromCache()
 	}
 	ytCache[vid] = info
 	ytMu.Unlock()
@@ -100,21 +101,17 @@ func GetYouTubeVideoInfoWithClient(vid string, client *http.Client) (*YouTubeVid
 	return info, nil
 }
 
-func deleteOldestFromCache() {
-	keys := make([]string, 0, len(ytCache))
-	for k := range ytCache {
-		keys = append(keys, k)
+func evictOldestFromCache() {
+	oldest := time.Now()
+	oldestKey := ""
+	for k, v := range ytCache {
+		if v.cachedAt.Before(oldest) {
+			oldest = v.cachedAt
+			oldestKey = k
+		}
 	}
-	sort.Slice(keys, func(i, j int) bool {
-		return ytCache[keys[i]].Views < ytCache[keys[j]].Views
-	})
-
-	numToRemove := len(ytCache) - 90
-	if numToRemove <= 0 {
-		numToRemove = 1
-	}
-	for i := 0; i < numToRemove && i < len(keys); i++ {
-		delete(ytCache, keys[i])
+	if oldestKey != "" {
+		delete(ytCache, oldestKey)
 	}
 }
 
