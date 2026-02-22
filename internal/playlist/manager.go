@@ -20,7 +20,6 @@ type Manager struct {
 	currentIndex int
 	isShuffled   bool
 	isEnabled    bool
-	wasPlaying   bool
 	mu           sync.RWMutex
 	ytClient     *youtube.Client
 }
@@ -202,6 +201,23 @@ func (m *Manager) AdvanceToNext() {
 	}
 }
 
+func (m *Manager) GetAt(i int) *queue.Track {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if i < 0 || i >= len(m.tracks) {
+		return nil
+	}
+	src := m.tracks[i]
+	return &queue.Track{
+		VideoID:     src.VideoID,
+		Title:       src.Title,
+		DurationSec: src.DurationSec,
+		Views:       src.Views,
+		AddedAt:     time.Now(),
+		AddedBy:     "Playlist",
+	}
+}
+
 func (m *Manager) GoToPrevious() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -248,34 +264,18 @@ func (m *Manager) Enable() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.isEnabled = true
-	m.wasPlaying = true
 }
 
 func (m *Manager) Disable() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.isEnabled = false
-	m.wasPlaying = false
-}
-
-func (m *Manager) SetInterrupted(v bool) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if v {
-		m.wasPlaying = m.isEnabled
-	}
 }
 
 func (m *Manager) IsEnabled() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.isEnabled
-}
-
-func (m *Manager) WasPlaying() bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.wasPlaying && m.isEnabled
 }
 
 func (m *Manager) Tracks() []*queue.Track {
@@ -290,16 +290,15 @@ func (m *Manager) CurrentIndex() int {
 	return m.currentIndex
 }
 
-func (m *Manager) Status() map[string]interface{} {
+func (m *Manager) Status() map[string]any {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return map[string]interface{}{
+	return map[string]any{
 		"enabled":       m.isEnabled,
 		"shuffled":      m.isShuffled,
 		"playlist_id":   m.playlistID,
 		"total_tracks":  len(m.tracks),
 		"current_index": m.currentIndex,
-		"was_playing":   m.wasPlaying,
 		"loaded":        len(m.tracks) > 0,
 	}
 }

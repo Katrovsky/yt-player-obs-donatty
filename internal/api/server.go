@@ -340,16 +340,10 @@ func (s *Server) handlePlaylistJump(w http.ResponseWriter, r *http.Request) {
 		reply(w, http.StatusBadRequest, response{Success: false, Message: "Invalid index parameter"})
 		return
 	}
-	pl := s.p.Playlist()
-	if pl == nil {
-		reply(w, http.StatusBadRequest, response{Success: false, Message: "No playlist loaded"})
-		return
-	}
-	if err := pl.JumpToIndex(idx); err != nil {
+	if err := s.p.PlaylistJump(idx); err != nil {
 		reply(w, http.StatusBadRequest, response{Success: false, Message: err.Error()})
 		return
 	}
-	s.p.Next()
 	reply(w, http.StatusOK, response{Success: true, Message: "Jumped to track"})
 }
 
