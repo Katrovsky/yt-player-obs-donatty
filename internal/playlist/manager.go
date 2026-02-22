@@ -290,10 +290,10 @@ func (m *Manager) CurrentIndex() int {
 	return m.currentIndex
 }
 
-func (m *Manager) Status() map[string]any {
+func (m *Manager) Status() map[string]interface{} {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return map[string]any{
+	return map[string]interface{}{
 		"enabled":       m.isEnabled,
 		"shuffled":      m.isShuffled,
 		"playlist_id":   m.playlistID,
@@ -302,4 +302,28 @@ func (m *Manager) Status() map[string]any {
 		"was_playing":   m.wasPlaying,
 		"loaded":        len(m.tracks) > 0,
 	}
+}
+
+func (m *Manager) IsShuffled() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.isShuffled
+}
+
+func (m *Manager) PlaylistID() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.playlistID
+}
+
+func (m *Manager) Loaded() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.tracks) > 0
+}
+
+func (m *Manager) Len() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.tracks)
 }
