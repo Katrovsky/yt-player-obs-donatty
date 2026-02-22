@@ -205,6 +205,29 @@ func (p *Player) Previous() error {
 	return nil
 }
 
+func (p *Player) PlaylistJump(idx int) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.pl == nil {
+		return fmt.Errorf("no playlist loaded")
+	}
+	t := p.pl.GetAt(idx)
+	if t == nil {
+		return fmt.Errorf("index out of range")
+	}
+	if err := p.pl.JumpToIndex(idx + 1); err != nil {
+		// best effort, non-fatal
+	}
+	if p.cur != nil {
+		p.hist.Push(p.cur)
+	}
+	p.cur = t
+	p.state = "playing"
+	log.Printf("Playlist jump to: %s", t.Title)
+	p.broadcast()
+	return nil
+}
+
 func (p *Player) Remove(idx int) (*queue.Track, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -267,14 +290,14 @@ func (p *Player) CurrentState() State {
 	return p.buildState()
 }
 
-func (p *Player) Status() map[string]interface{} {
+func (p *Player) Status() map[string]any {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	total := p.q.Len()
 	if p.cur != nil {
 		total++
 	}
-	return map[string]interface{}{
+	return map[string]any{
 		"state":        p.state,
 		"current":      p.cur,
 		"position":     p.hist.Len() + 1,
@@ -282,10 +305,10 @@ func (p *Player) Status() map[string]interface{} {
 	}
 }
 
-func (p *Player) NowPlaying() map[string]interface{} {
+func (p *Player) NowPlaying() map[string]any {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	resp := map[string]interface{}{"status": p.state, "artist": "", "title": "", "url": ""}
+	resp := map[string]any{"status": p.state, "artist": "", "title": "", "url": ""}
 	if p.cur == nil {
 		return resp
 	}
@@ -309,13 +332,10 @@ func (p *Player) playNext() {
 	if t := p.q.Next(); t != nil {
 		p.cur = t
 		p.state = "playing"
-		if p.pl != nil {
-			p.pl.SetInterrupted(true)
-		}
 		log.Printf("Next track: %s", p.cur.Title)
 		return
 	}
-	if p.pl != nil && p.pl.WasPlaying() {
+	if p.pl != nil && p.pl.IsEnabled() {
 		if t := p.pl.GetNext(); t != nil {
 			p.cur = t
 			p.state = "playing"
