@@ -30,30 +30,29 @@ func main() {
 	p := player.New(cfg, yt)
 	hub := api.NewHub()
 
-	var pl *playlist.Manager
-	if c.FallbackPlaylistURL != "" {
-		pl = playlist.New(yt)
-		if err := pl.Load(c.FallbackPlaylistURL); err != nil {
-			log.Printf("Failed to load fallback playlist: %v", err)
-			pl = nil
-		} else {
-			pl.Enable()
-		}
-	}
-	if pl == nil {
-		pl = playlist.New(yt)
-	}
+	pl := playlist.New(yt)
 	p.SetPlaylist(pl)
+	if c.FallbackPlaylistURL != "" {
+		go func() {
+			if err := pl.Load(c.FallbackPlaylistURL); err != nil {
+				log.Printf("Failed to load fallback playlist: %v", err)
+				return
+			}
+			pl.Enable()
+			log.Println("Fallback playlist ready")
+		}()
+	}
 
-	donationEnabled := false
-	if c.DonationWidgetURL != "" {
-		mon, err := donation.New(c.DonationWidgetURL, c.DonationMinAmount, p.ValidateAndAdd)
-		if err != nil {
-			log.Printf("Failed to init donation monitor: %v", err)
-		} else {
-			donationEnabled = true
-			go mon.Start()
-		}
+	donationEnabled := c.DonationWidgetURL != ""
+	if donationEnabled {
+		go func() {
+			mon, err := donation.New(c.DonationWidgetURL, c.DonationMinAmount, p.ValidateAndAdd)
+			if err != nil {
+				log.Printf("Failed to init donation monitor: %v", err)
+				return
+			}
+			mon.Start()
+		}()
 	}
 
 	go api.BroadcastLoop(p, hub)
