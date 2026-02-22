@@ -299,7 +299,7 @@ curl -X POST "http://localhost:8093/api/remove?index=0"
 curl -X POST http://localhost:8093/api/clear
 ```
 
-### Эндпоинты лейлиста
+### Эндпоинты плейлиста
 
 ```bash
 curl -X POST "http://localhost:8093/api/playlist/set?url=ССЫЛКА"
