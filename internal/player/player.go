@@ -14,11 +14,21 @@ import (
 
 const historySize = 100
 
+type PlaylistState struct {
+	Loaded       bool   `json:"loaded"`
+	Enabled      bool   `json:"enabled"`
+	Shuffled     bool   `json:"shuffled"`
+	PlaylistID   string `json:"playlist_id"`
+	TotalTracks  int    `json:"total_tracks"`
+	CurrentIndex int    `json:"current_index"`
+}
+
 type State struct {
 	Action   string         `json:"action"`
 	Current  *queue.Track   `json:"current,omitempty"`
 	Queue    []*queue.Track `json:"queue,omitempty"`
 	Position int            `json:"position"`
+	Playlist PlaylistState  `json:"playlist"`
 }
 
 type Player struct {
@@ -55,6 +65,12 @@ func (p *Player) Playlist() *playlist.Manager {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.pl
+}
+
+func (p *Player) BroadcastPlaylistUpdate() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.broadcast()
 }
 
 func (p *Player) ValidateAndAdd(vid, by string, paid bool) error {
@@ -251,14 +267,14 @@ func (p *Player) CurrentState() State {
 	return p.buildState()
 }
 
-func (p *Player) Status() map[string]any {
+func (p *Player) Status() map[string]interface{} {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	total := p.q.Len()
 	if p.cur != nil {
 		total++
 	}
-	return map[string]any{
+	return map[string]interface{}{
 		"state":        p.state,
 		"current":      p.cur,
 		"position":     p.hist.Len() + 1,
@@ -266,10 +282,10 @@ func (p *Player) Status() map[string]any {
 	}
 }
 
-func (p *Player) NowPlaying() map[string]any {
+func (p *Player) NowPlaying() map[string]interface{} {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	resp := map[string]any{"status": p.state, "artist": "", "title": "", "url": ""}
+	resp := map[string]interface{}{"status": p.state, "artist": "", "title": "", "url": ""}
 	if p.cur == nil {
 		return resp
 	}
@@ -345,5 +361,18 @@ func (p *Player) buildState() State {
 		all = append(all, p.cur)
 	}
 	all = append(all, items...)
-	return State{Action: p.state, Current: p.cur, Queue: all, Position: pos}
+
+	var plState PlaylistState
+	if p.pl != nil {
+		plState = PlaylistState{
+			Loaded:       p.pl.Loaded(),
+			Enabled:      p.pl.IsEnabled(),
+			Shuffled:     p.pl.IsShuffled(),
+			PlaylistID:   p.pl.PlaylistID(),
+			TotalTracks:  p.pl.Len(),
+			CurrentIndex: p.pl.CurrentIndex(),
+		}
+	}
+
+	return State{Action: p.state, Current: p.cur, Queue: all, Position: pos, Playlist: plState}
 }
