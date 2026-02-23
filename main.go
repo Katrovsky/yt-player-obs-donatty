@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"yt-player/internal/api"
+	"yt-player/internal/cache"
 	"yt-player/internal/config"
 	"yt-player/internal/donation"
 	"yt-player/internal/player"
@@ -26,11 +27,18 @@ func main() {
 	go cfg.Watch()
 
 	c := cfg.Get()
-	yt := youtube.NewClient(c.YouTubeAPIKey)
+
+	db, err := cache.Open("cache.db", 7*24*time.Hour)
+	if err != nil {
+		log.Fatal("Failed to open cache:", err)
+	}
+	defer db.Close()
+
+	yt := youtube.NewClient(c.YouTubeAPIKey, db)
 	p := player.New(cfg, yt)
 	hub := api.NewHub()
 
-	pl := playlist.New(yt)
+	pl := playlist.New(yt, db)
 	p.SetPlaylist(pl)
 	if c.FallbackPlaylistURL != "" {
 		go func() {

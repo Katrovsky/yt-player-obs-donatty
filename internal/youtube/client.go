@@ -6,25 +6,21 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
-	"sync"
 	"time"
+
+	"yt-player/internal/cache"
 )
 
 type VideoInfo struct {
-	Title    string
-	Duration int
-	Views    int
+	Title      string
+	Duration   int
+	Views      int
+	Embeddable bool
 }
 
 type Client struct {
 	apiKey string
-	mu     sync.RWMutex
-	cache  map[string]cacheEntry
-}
-
-type cacheEntry struct {
-	info     VideoInfo
-	cachedAt time.Time
+	cache  *cache.Cache
 }
 
 var youtubeIDRegex = regexp.MustCompile(`(?:youtube\.com/watch\?v=|youtu\.be/)([a-zA-Z0-9_-]{11})`)
@@ -42,11 +38,8 @@ func ExtractID(text string) string {
 	return ""
 }
 
-func NewClient(apiKey string) *Client {
-	return &Client{
-		apiKey: apiKey,
-		cache:  make(map[string]cacheEntry),
-	}
+func NewClient(apiKey string, c *cache.Cache) *Client {
+	return &Client{apiKey: apiKey, cache: c}
 }
 
 func (c *Client) APIKey() string { return c.apiKey }
@@ -56,19 +49,16 @@ func (c *Client) GetVideoInfo(vid string) (VideoInfo, error) {
 }
 
 func (c *Client) GetVideoInfoWithClient(vid string, client *http.Client) (VideoInfo, error) {
-	c.mu.RLock()
-	if e, ok := c.cache[vid]; ok {
-		c.mu.RUnlock()
-		return e.info, nil
+	if e, ok := c.cache.GetVideo(vid); ok {
+		return VideoInfo{Title: e.Title, Duration: e.Duration, Views: e.Views, Embeddable: e.Embeddable}, nil
 	}
-	c.mu.RUnlock()
 
 	if c.apiKey == "" {
 		return VideoInfo{}, fmt.Errorf("YouTube API key not configured")
 	}
 
 	url := fmt.Sprintf(
-		"https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,statistics&id=%s&key=%s",
+		"https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,statistics,status&id=%s&key=%s",
 		vid, c.apiKey,
 	)
 	resp, err := client.Get(url)
@@ -92,6 +82,10 @@ func (c *Client) GetVideoInfoWithClient(vid string, client *http.Client) (VideoI
 			Statistics struct {
 				ViewCount string `json:"viewCount"`
 			} `json:"statistics"`
+			Status struct {
+				Embeddable    bool   `json:"embeddable"`
+				PrivacyStatus string `json:"privacyStatus"`
+			} `json:"status"`
 		} `json:"items"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
@@ -110,31 +104,11 @@ func (c *Client) GetVideoInfoWithClient(vid string, client *http.Client) (VideoI
 	if item.Statistics.ViewCount != "" {
 		views, _ = strconv.Atoi(item.Statistics.ViewCount)
 	}
+	embeddable := item.Status.Embeddable && item.Status.PrivacyStatus == "public"
 
-	info := VideoInfo{Title: item.Snippet.Title, Duration: dur, Views: views}
-
-	c.mu.Lock()
-	if len(c.cache) >= 100 {
-		c.evictOldest()
-	}
-	c.cache[vid] = cacheEntry{info: info, cachedAt: time.Now()}
-	c.mu.Unlock()
-
+	info := VideoInfo{Title: item.Snippet.Title, Duration: dur, Views: views, Embeddable: embeddable}
+	c.cache.SetVideo(vid, cache.VideoEntry{Title: info.Title, Duration: info.Duration, Views: info.Views, Embeddable: info.Embeddable})
 	return info, nil
-}
-
-func (c *Client) evictOldest() {
-	var oldestKey string
-	var oldestTime time.Time
-	for k, e := range c.cache {
-		if oldestKey == "" || e.cachedAt.Before(oldestTime) {
-			oldestKey = k
-			oldestTime = e.cachedAt
-		}
-	}
-	if oldestKey != "" {
-		delete(c.cache, oldestKey)
-	}
 }
 
 func parseDuration(iso string) (int, error) {
