@@ -45,7 +45,7 @@ func (m *Playlist) load(playlistURL string) error {
 	}
 	m.mu.Lock()
 	m.playlistID = pid
-	m.items = m.items[:0]
+	m.tracks = m.tracks[:0]
 	m.currentIndex = 0
 	m.mu.Unlock()
 
@@ -56,7 +56,7 @@ func (m *Playlist) load(playlistURL string) error {
 			if !t.Embeddable {
 				continue
 			}
-			m.items = append(m.items, &Track{
+			m.tracks = append(m.tracks, &Track{
 				VideoID: t.VideoID, Title: t.Title,
 				DurationSec: t.DurationSec, Views: t.Views,
 				AddedAt: time.Now(), AddedBy: "Playlist",
@@ -93,7 +93,7 @@ func (m *Playlist) fetchAndCache(pid string) error {
 			continue
 		}
 		m.mu.Lock()
-		m.items = append(m.items, &Track{
+		m.tracks = append(m.tracks, &Track{
 			VideoID: vid, Title: info.Title,
 			DurationSec: info.Duration, Views: info.Views,
 			AddedAt: time.Now(), AddedBy: "Playlist",
@@ -179,7 +179,7 @@ func extractPlaylistID(rawURL string) string {
 func (m *Playlist) getNext() *Track {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if !m.isEnabled || len(m.items) == 0 {
+	if !m.isEnabled || len(m.tracks) == 0 {
 		return nil
 	}
 	idx := m.currentIndex
@@ -188,10 +188,10 @@ func (m *Playlist) getNext() *Track {
 			idx = s
 		}
 	}
-	if idx >= len(m.items) {
+	if idx >= len(m.tracks) {
 		idx = 0
 	}
-	src := m.items[idx]
+	src := m.tracks[idx]
 	return &Track{VideoID: src.VideoID, Title: src.Title, DurationSec: src.DurationSec, Views: src.Views, AddedAt: time.Now(), AddedBy: "Playlist"}
 }
 
@@ -199,7 +199,7 @@ func (m *Playlist) advanceToNext() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.currentIndex++
-	if m.currentIndex >= len(m.items) {
+	if m.currentIndex >= len(m.tracks) {
 		m.currentIndex = 0
 		if m.isShuffled {
 			m.reshuffleLocked()
@@ -210,10 +210,10 @@ func (m *Playlist) advanceToNext() {
 func (m *Playlist) getAt(i int) *Track {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	if i < 0 || i >= len(m.items) {
+	if i < 0 || i >= len(m.tracks) {
 		return nil
 	}
-	src := m.items[i]
+	src := m.tracks[i]
 	return &Track{VideoID: src.VideoID, Title: src.Title, DurationSec: src.DurationSec, Views: src.Views, AddedAt: time.Now(), AddedBy: "Playlist"}
 }
 
@@ -222,14 +222,14 @@ func (m *Playlist) goToPrevious() {
 	defer m.mu.Unlock()
 	m.currentIndex--
 	if m.currentIndex < 0 {
-		m.currentIndex = len(m.items) - 1
+		m.currentIndex = len(m.tracks) - 1
 	}
 }
 
 func (m *Playlist) jumpToIndex(i int) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if i < 0 || i >= len(m.items) {
+	if i < 0 || i >= len(m.tracks) {
 		return fmt.Errorf("index out of range")
 	}
 	m.currentIndex = i
@@ -247,8 +247,8 @@ func (m *Playlist) toggleShuffle() {
 }
 
 func (m *Playlist) reshuffleLocked() {
-	m.shuffleMap = make(map[int]int, len(m.items))
-	indices := make([]int, len(m.items))
+	m.shuffleMap = make(map[int]int, len(m.tracks))
+	indices := make([]int, len(m.tracks))
 	for i := range indices {
 		indices[i] = i
 	}
@@ -280,7 +280,7 @@ func (m *Playlist) isEnabledVal() bool {
 func (m *Playlist) getTracks() []*Track {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.items
+	return m.tracks
 }
 
 func (m *Playlist) currentIndexVal() int {
@@ -296,9 +296,9 @@ func (m *Playlist) status() map[string]any {
 		"enabled":       m.isEnabled,
 		"shuffled":      m.isShuffled,
 		"playlist_id":   m.playlistID,
-		"total_tracks":  len(m.items),
+		"total_tracks":  len(m.tracks),
 		"current_index": m.currentIndex,
-		"loaded":        len(m.items) > 0,
+		"loaded":        len(m.tracks) > 0,
 	}
 }
 
@@ -317,11 +317,11 @@ func (m *Playlist) getPlaylistID() string {
 func (m *Playlist) loaded() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return len(m.items) > 0
+	return len(m.tracks) > 0
 }
 
 func (m *Playlist) lenVal() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return len(m.items)
+	return len(m.tracks)
 }
