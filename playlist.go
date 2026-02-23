@@ -1,4 +1,4 @@
-package playlist
+package main
 
 import (
 	"encoding/json"
@@ -9,25 +9,21 @@ import (
 	"net/url"
 	"sync"
 	"time"
-
-	"yt-player/internal/cache"
-	"yt-player/internal/queue"
-	"yt-player/internal/youtube"
 )
 
-type Manager struct {
+type Playlist struct {
+	mu           sync.RWMutex
 	playlistID   string
-	tracks       []*queue.Track
+	tracks       []*Track
 	shuffleMap   map[int]int
 	currentIndex int
 	isShuffled   bool
 	isEnabled    bool
-	mu           sync.RWMutex
-	ytClient     *youtube.Client
-	cache        *cache.Cache
+	yt           *YouTubeClient
+	cache        *Cache
 }
 
-type apiResponse struct {
+type playlistAPIResponse struct {
 	Items []struct {
 		Snippet struct {
 			ResourceID struct {
@@ -38,129 +34,104 @@ type apiResponse struct {
 	NextPageToken string `json:"nextPageToken"`
 }
 
-func New(yt *youtube.Client, c *cache.Cache) *Manager {
-	return &Manager{
-		tracks:     make([]*queue.Track, 0),
-		shuffleMap: make(map[int]int),
-		ytClient:   yt,
-		cache:      c,
-	}
+func newPlaylist(yt *YouTubeClient, c *Cache) *Playlist {
+	return &Playlist{tracks: make([]*Track, 0), shuffleMap: make(map[int]int), yt: yt, cache: c}
 }
 
-func (m *Manager) Load(playlistURL string) error {
+func (m *Playlist) load(playlistURL string) error {
 	pid := extractPlaylistID(playlistURL)
 	if pid == "" {
 		return fmt.Errorf("invalid playlist URL")
 	}
-
 	m.mu.Lock()
 	m.playlistID = pid
 	m.tracks = m.tracks[:0]
 	m.currentIndex = 0
 	m.mu.Unlock()
 
-	if entry, ok := m.cache.GetPlaylist(pid); ok {
+	if entry, ok := m.cache.getPlaylist(pid); ok {
 		log.Printf("Playlist loaded from cache: %d tracks", len(entry.Tracks))
 		m.mu.Lock()
 		for _, t := range entry.Tracks {
 			if !t.Embeddable {
 				continue
 			}
-			m.tracks = append(m.tracks, &queue.Track{
-				VideoID:     t.VideoID,
-				Title:       t.Title,
-				DurationSec: t.DurationSec,
-				Views:       t.Views,
-				AddedAt:     time.Now(),
-				AddedBy:     "Playlist",
+			m.tracks = append(m.tracks, &Track{
+				VideoID: t.VideoID, Title: t.Title,
+				DurationSec: t.DurationSec, Views: t.Views,
+				AddedAt: time.Now(), AddedBy: "Playlist",
 			})
 		}
 		m.reshuffleLocked()
 		m.mu.Unlock()
 		return nil
 	}
-
 	return m.fetchAndCache(pid)
 }
 
-func (m *Manager) Reload(playlistURL string) error {
+func (m *Playlist) reload(playlistURL string) error {
 	pid := extractPlaylistID(playlistURL)
 	if pid == "" {
 		return fmt.Errorf("invalid playlist URL")
 	}
-	m.cache.DeletePlaylist(pid)
-	return m.Load(playlistURL)
+	m.cache.deletePlaylist(pid)
+	return m.load(playlistURL)
 }
 
-func (m *Manager) fetchAndCache(pid string) error {
+func (m *Playlist) fetchAndCache(pid string) error {
 	vids, err := m.fetchAllVideoIDs(pid)
 	if err != nil {
 		return err
 	}
-
 	client := &http.Client{Timeout: 20 * time.Second}
-	var cTracks []cache.PlaylistTrack
+	var cTracks []PlaylistTrack
 	ok, fail := 0, 0
 	for _, vid := range vids {
-		info, err := m.ytClient.GetVideoInfoWithClient(vid, client)
-		if err != nil {
-			fail++
-			continue
-		}
-		if !info.Embeddable {
+		info, err := m.yt.getVideoInfoWithClient(vid, client)
+		if err != nil || !info.Embeddable {
 			fail++
 			continue
 		}
 		m.mu.Lock()
-		m.tracks = append(m.tracks, &queue.Track{
-			VideoID:     vid,
-			Title:       info.Title,
-			DurationSec: info.Duration,
-			Views:       info.Views,
-			AddedAt:     time.Now(),
-			AddedBy:     "Playlist",
+		m.tracks = append(m.tracks, &Track{
+			VideoID: vid, Title: info.Title,
+			DurationSec: info.Duration, Views: info.Views,
+			AddedAt: time.Now(), AddedBy: "Playlist",
 		})
 		m.mu.Unlock()
-		cTracks = append(cTracks, cache.PlaylistTrack{
-			VideoID:     vid,
-			Title:       info.Title,
-			DurationSec: info.Duration,
-			Views:       info.Views,
-			Embeddable:  true,
+		cTracks = append(cTracks, PlaylistTrack{
+			VideoID: vid, Title: info.Title,
+			DurationSec: info.Duration, Views: info.Views, Embeddable: true,
 		})
 		ok++
 	}
-
 	if ok == 0 {
 		return fmt.Errorf("no valid tracks found in playlist")
 	}
 	log.Printf("Loaded playlist: %d tracks (%d skipped)", ok, fail)
-	m.cache.SetPlaylist(pid, cache.PlaylistEntry{Tracks: cTracks})
+	m.cache.setPlaylist(pid, PlaylistEntry{Tracks: cTracks})
 	m.mu.Lock()
 	m.reshuffleLocked()
 	m.mu.Unlock()
 	return nil
 }
 
-func (m *Manager) fetchAllVideoIDs(pid string) ([]string, error) {
+func (m *Playlist) fetchAllVideoIDs(pid string) ([]string, error) {
 	var vids []string
 	pageToken := ""
 	client := &http.Client{Timeout: 20 * time.Second}
-
-	apiKey := m.ytClient.APIKey()
-	if apiKey == "" {
+	if m.yt.apiKey == "" {
 		return nil, fmt.Errorf("YouTube API key not configured")
 	}
-
 	for {
-		url := fmt.Sprintf(
+		u := fmt.Sprintf(
 			"https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=%s&maxResults=50&key=%s",
-			pid, apiKey,
+			pid, m.yt.apiKey,
 		)
 		if pageToken != "" {
-			url += "&pageToken=" + pageToken
+			u += "&pageToken=" + pageToken
 		}
-		page, err := fetchPage(client, url)
+		page, err := fetchPlaylistPage(client, u)
 		if err != nil {
 			return nil, err
 		}
@@ -177,8 +148,8 @@ func (m *Manager) fetchAllVideoIDs(pid string) ([]string, error) {
 	return vids, nil
 }
 
-func fetchPage(client *http.Client, url string) (*apiResponse, error) {
-	resp, err := client.Get(url)
+func fetchPlaylistPage(client *http.Client, u string) (*playlistAPIResponse, error) {
+	resp, err := client.Get(u)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch playlist: %w", err)
 	}
@@ -186,7 +157,7 @@ func fetchPage(client *http.Client, url string) (*apiResponse, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("youtube API returned status: %d", resp.StatusCode)
 	}
-	var ar apiResponse
+	var ar playlistAPIResponse
 	if err := json.NewDecoder(resp.Body).Decode(&ar); err != nil {
 		return nil, fmt.Errorf("failed to parse API response: %w", err)
 	}
@@ -205,7 +176,7 @@ func extractPlaylistID(rawURL string) string {
 	return ""
 }
 
-func (m *Manager) GetNext() *queue.Track {
+func (m *Playlist) getNext() *Track {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if !m.isEnabled || len(m.tracks) == 0 {
@@ -221,17 +192,10 @@ func (m *Manager) GetNext() *queue.Track {
 		idx = 0
 	}
 	src := m.tracks[idx]
-	return &queue.Track{
-		VideoID:     src.VideoID,
-		Title:       src.Title,
-		DurationSec: src.DurationSec,
-		Views:       src.Views,
-		AddedAt:     time.Now(),
-		AddedBy:     "Playlist",
-	}
+	return &Track{VideoID: src.VideoID, Title: src.Title, DurationSec: src.DurationSec, Views: src.Views, AddedAt: time.Now(), AddedBy: "Playlist"}
 }
 
-func (m *Manager) AdvanceToNext() {
+func (m *Playlist) advanceToNext() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.currentIndex++
@@ -243,24 +207,17 @@ func (m *Manager) AdvanceToNext() {
 	}
 }
 
-func (m *Manager) GetAt(i int) *queue.Track {
+func (m *Playlist) getAt(i int) *Track {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	if i < 0 || i >= len(m.tracks) {
 		return nil
 	}
 	src := m.tracks[i]
-	return &queue.Track{
-		VideoID:     src.VideoID,
-		Title:       src.Title,
-		DurationSec: src.DurationSec,
-		Views:       src.Views,
-		AddedAt:     time.Now(),
-		AddedBy:     "Playlist",
-	}
+	return &Track{VideoID: src.VideoID, Title: src.Title, DurationSec: src.DurationSec, Views: src.Views, AddedAt: time.Now(), AddedBy: "Playlist"}
 }
 
-func (m *Manager) GoToPrevious() {
+func (m *Playlist) goToPrevious() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.currentIndex--
@@ -269,7 +226,7 @@ func (m *Manager) GoToPrevious() {
 	}
 }
 
-func (m *Manager) JumpToIndex(i int) error {
+func (m *Playlist) jumpToIndex(i int) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if i < 0 || i >= len(m.tracks) {
@@ -279,7 +236,7 @@ func (m *Manager) JumpToIndex(i int) error {
 	return nil
 }
 
-func (m *Manager) ToggleShuffle() {
+func (m *Playlist) toggleShuffle() {
 	m.mu.Lock()
 	m.isShuffled = !m.isShuffled
 	if m.isShuffled {
@@ -289,7 +246,7 @@ func (m *Manager) ToggleShuffle() {
 	m.mu.Unlock()
 }
 
-func (m *Manager) reshuffleLocked() {
+func (m *Playlist) reshuffleLocked() {
 	m.shuffleMap = make(map[int]int, len(m.tracks))
 	indices := make([]int, len(m.tracks))
 	for i := range indices {
@@ -302,37 +259,37 @@ func (m *Manager) reshuffleLocked() {
 	}
 }
 
-func (m *Manager) Enable() {
+func (m *Playlist) enable() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.isEnabled = true
 }
 
-func (m *Manager) Disable() {
+func (m *Playlist) disable() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.isEnabled = false
 }
 
-func (m *Manager) IsEnabled() bool {
+func (m *Playlist) isEnabledVal() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.isEnabled
 }
 
-func (m *Manager) Tracks() []*queue.Track {
+func (m *Playlist) getTracks() []*Track {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.tracks
 }
 
-func (m *Manager) CurrentIndex() int {
+func (m *Playlist) currentIndexVal() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.currentIndex
 }
 
-func (m *Manager) Status() map[string]any {
+func (m *Playlist) status() map[string]any {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return map[string]any{
@@ -345,25 +302,25 @@ func (m *Manager) Status() map[string]any {
 	}
 }
 
-func (m *Manager) IsShuffled() bool {
+func (m *Playlist) isShuffledVal() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.isShuffled
 }
 
-func (m *Manager) PlaylistID() string {
+func (m *Playlist) getPlaylistID() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.playlistID
 }
 
-func (m *Manager) Loaded() bool {
+func (m *Playlist) loaded() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return len(m.tracks) > 0
 }
 
-func (m *Manager) Len() int {
+func (m *Playlist) lenVal() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return len(m.tracks)

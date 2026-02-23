@@ -1,4 +1,4 @@
-package player
+package main
 
 import (
 	"fmt"
@@ -6,16 +6,19 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"yt-player/internal/config"
-	"yt-player/internal/playlist"
-	"yt-player/internal/queue"
-	"yt-player/internal/youtube"
 )
 
 const historySize = 100
 
-type PlaylistState struct {
+type PlayerState struct {
+	Action   string         `json:"action"`
+	Current  *Track         `json:"current,omitempty"`
+	Queue    []*Track       `json:"queue,omitempty"`
+	Position int            `json:"position"`
+	Playlist PlaylistStatus `json:"playlist"`
+}
+
+type PlaylistStatus struct {
 	Loaded       bool   `json:"loaded"`
 	Enabled      bool   `json:"enabled"`
 	Shuffled     bool   `json:"shuffled"`
@@ -24,75 +27,59 @@ type PlaylistState struct {
 	CurrentIndex int    `json:"current_index"`
 }
 
-type State struct {
-	Action   string         `json:"action"`
-	Current  *queue.Track   `json:"current,omitempty"`
-	Queue    []*queue.Track `json:"queue,omitempty"`
-	Position int            `json:"position"`
-	Playlist PlaylistState  `json:"playlist"`
-}
-
 type Player struct {
 	mu      sync.Mutex
-	q       queue.Priority
-	hist    *queue.RingBuffer
-	cur     *queue.Track
+	q       PriorityQueue
+	hist    *RingBuffer
+	cur     *Track
 	state   string
-	cfg     *config.Manager
-	yt      *youtube.Client
-	pl      *playlist.Manager
-	updates chan State
+	cfg     *ConfigManager
+	yt      *YouTubeClient
+	pl      *Playlist
+	updates chan PlayerState
 }
 
-func New(cfg *config.Manager, yt *youtube.Client) *Player {
+func newPlayer(cfg *ConfigManager, yt *YouTubeClient) *Player {
 	return &Player{
-		hist:    queue.NewRingBuffer(historySize),
+		hist:    newRingBuffer(historySize),
 		state:   "stopped",
 		cfg:     cfg,
 		yt:      yt,
-		updates: make(chan State, 50),
+		updates: make(chan PlayerState, 50),
 	}
 }
 
-func (p *Player) Updates() <-chan State { return p.updates }
-
-func (p *Player) SetPlaylist(pl *playlist.Manager) {
+func (p *Player) setPlaylist(pl *Playlist) {
 	p.mu.Lock()
 	p.pl = pl
 	p.mu.Unlock()
 }
 
-func (p *Player) Playlist() *playlist.Manager {
+func (p *Player) getPlaylist() *Playlist {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.pl
 }
 
-func (p *Player) BroadcastPlaylistUpdate() {
+func (p *Player) broadcastPlaylistUpdate() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.broadcast()
 }
 
-func (p *Player) ValidateAndAdd(vid, by string, paid bool) error {
-	info, err := p.yt.GetVideoInfo(vid)
+func (p *Player) validateAndAdd(vid, by string, paid bool) error {
+	info, err := p.yt.getVideoInfo(vid)
 	if err != nil {
 		return err
 	}
-
-	cfg := p.cfg.Get()
-	t := &queue.Track{
-		VideoID:     vid,
-		Title:       info.Title,
-		DurationSec: info.Duration,
-		Views:       info.Views,
-		AddedAt:     time.Now(),
-		AddedBy:     by,
-		IsPaid:      paid,
-	}
-
 	if !info.Embeddable {
 		return fmt.Errorf("video is not available for playback")
+	}
+	cfg := p.cfg.get()
+	t := &Track{
+		VideoID: vid, Title: info.Title,
+		DurationSec: info.Duration, Views: info.Views,
+		AddedAt: time.Now(), AddedBy: by, IsPaid: paid,
 	}
 	if cfg.MaxDurationMinutes > 0 && t.DurationSec > cfg.MaxDurationMinutes*60 {
 		return fmt.Errorf("track too long (max %d minutes)", cfg.MaxDurationMinutes)
@@ -100,16 +87,13 @@ func (p *Player) ValidateAndAdd(vid, by string, paid bool) error {
 	if cfg.MinViews > 0 && t.Views < cfg.MinViews {
 		return fmt.Errorf("insufficient views (min %d)", cfg.MinViews)
 	}
-
 	p.mu.Lock()
 	defer p.mu.Unlock()
-
 	if !p.canRepeat(vid) {
 		return fmt.Errorf("track recently played (repeat limit reached)")
 	}
-
 	if cfg.MaxQueueSize > 0 {
-		total := p.q.Len()
+		total := p.q.len()
 		if p.cur != nil {
 			total++
 		}
@@ -117,11 +101,9 @@ func (p *Player) ValidateAndAdd(vid, by string, paid bool) error {
 			return fmt.Errorf("queue is full (max %d tracks)", cfg.MaxQueueSize)
 		}
 	}
-
-	wasEmpty := p.q.Len() == 0 && p.cur == nil
-	p.q.Add(t)
+	wasEmpty := p.q.len() == 0 && p.cur == nil
+	p.q.add(t, false)
 	log.Printf("Added: %s by %s (paid=%v)", t.Title, by, paid)
-
 	if p.state == "stopped" && wasEmpty {
 		p.playNext()
 	}
@@ -129,12 +111,11 @@ func (p *Player) ValidateAndAdd(vid, by string, paid bool) error {
 	return nil
 }
 
-func (p *Player) Play() error {
+func (p *Player) play() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-
-	if p.q.Len() == 0 && p.cur == nil {
-		if p.pl != nil && p.pl.IsEnabled() {
+	if p.q.len() == 0 && p.cur == nil {
+		if p.pl != nil && p.pl.isEnabledVal() {
 			p.playNext()
 			p.broadcast()
 			return nil
@@ -151,7 +132,7 @@ func (p *Player) Play() error {
 	return nil
 }
 
-func (p *Player) Pause() {
+func (p *Player) pause() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.state != "paused" {
@@ -161,48 +142,48 @@ func (p *Player) Pause() {
 	}
 }
 
-func (p *Player) Stop() {
+func (p *Player) stop() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.state != "stopped" {
 		p.state = "stopped"
 		if p.pl != nil {
-			p.pl.Disable()
+			p.pl.disable()
 		}
 		log.Println("Stopped")
 		p.broadcast()
 	}
 }
 
-func (p *Player) Next() {
+func (p *Player) next() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.cur != nil {
-		p.hist.Push(p.cur)
+		p.hist.push(p.cur)
 		if p.cur.AddedBy == "Playlist" && p.pl != nil {
-			p.pl.AdvanceToNext()
+			p.pl.advanceToNext()
 		}
 	}
 	p.playNext()
 	p.broadcast()
 }
 
-func (p *Player) Previous() error {
+func (p *Player) previous() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.hist.Len() == 0 {
+	if p.hist.len() == 0 {
 		return fmt.Errorf("no previous track available")
 	}
 	if p.cur != nil {
 		if p.cur.AddedBy == "Playlist" && p.pl != nil {
-			p.pl.GoToPrevious()
+			p.pl.goToPrevious()
 		} else {
-			p.q.AddFront(p.cur)
+			p.q.add(p.cur, true)
 		}
 	}
-	prev := p.hist.Pop()
+	prev := p.hist.pop()
 	if prev.AddedBy == "Playlist" && p.pl != nil {
-		p.pl.GoToPrevious()
+		p.pl.goToPrevious()
 	}
 	p.cur = prev
 	p.state = "playing"
@@ -211,21 +192,19 @@ func (p *Player) Previous() error {
 	return nil
 }
 
-func (p *Player) PlaylistJump(idx int) error {
+func (p *Player) playlistJump(idx int) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.pl == nil {
 		return fmt.Errorf("no playlist loaded")
 	}
-	t := p.pl.GetAt(idx)
+	t := p.pl.getAt(idx)
 	if t == nil {
 		return fmt.Errorf("index out of range")
 	}
-	if err := p.pl.JumpToIndex(idx + 1); err != nil {
-		// best effort, non-fatal
-	}
+	_ = p.pl.jumpToIndex(idx + 1)
 	if p.cur != nil {
-		p.hist.Push(p.cur)
+		p.hist.push(p.cur)
 	}
 	p.cur = t
 	p.state = "playing"
@@ -234,10 +213,10 @@ func (p *Player) PlaylistJump(idx int) error {
 	return nil
 }
 
-func (p *Player) Remove(idx int) (*queue.Track, error) {
+func (p *Player) remove(idx int) (*Track, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	t := p.q.RemoveAt(idx)
+	t := p.q.removeAt(idx)
 	if t == nil {
 		return nil, fmt.Errorf("index out of range")
 	}
@@ -246,14 +225,14 @@ func (p *Player) Remove(idx int) (*queue.Track, error) {
 	return t, nil
 }
 
-func (p *Player) Clear() int {
+func (p *Player) clear() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	sz := p.q.Len()
+	sz := p.q.len()
 	if p.cur != nil {
 		sz++
 	}
-	p.q.Clear()
+	p.q.clear()
 	p.cur = nil
 	p.state = "stopped"
 	log.Printf("Queue cleared (%d tracks)", sz)
@@ -261,57 +240,55 @@ func (p *Player) Clear() int {
 	return sz
 }
 
-func (p *Player) CleanupOld(hours int) {
+func (p *Player) cleanupOld(hours int) {
 	if hours == 0 {
 		return
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	cutoff := time.Now().Add(-time.Duration(hours) * time.Hour)
-	items := p.q.Snapshot()
-	var keep []*queue.Track
+	items := p.q.snapshot()
+	var keep []*Track
 	for _, t := range items {
 		if t.AddedAt.After(cutoff) {
 			keep = append(keep, t)
 		}
 	}
-	removed := len(items) - len(keep)
-	if removed == 0 {
-		return
+	if removed := len(items) - len(keep); removed > 0 {
+		p.q.clear()
+		for _, t := range keep {
+			p.q.add(t, false)
+		}
+		if p.q.len() == 0 && p.cur == nil {
+			p.state = "stopped"
+		}
+		log.Printf("Cleanup: removed %d old tracks", removed)
+		p.broadcast()
 	}
-	p.q.Clear()
-	for _, t := range keep {
-		p.q.Add(t)
-	}
-	if p.q.Len() == 0 && p.cur == nil {
-		p.state = "stopped"
-	}
-	log.Printf("Cleanup: removed %d old tracks", removed)
-	p.broadcast()
 }
 
-func (p *Player) CurrentState() State {
+func (p *Player) currentState() PlayerState {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.buildState()
 }
 
-func (p *Player) Status() map[string]any {
+func (p *Player) status() map[string]any {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	total := p.q.Len()
+	total := p.q.len()
 	if p.cur != nil {
 		total++
 	}
 	return map[string]any{
 		"state":        p.state,
 		"current":      p.cur,
-		"position":     p.hist.Len() + 1,
+		"position":     p.hist.len() + 1,
 		"queue_length": total,
 	}
 }
 
-func (p *Player) NowPlaying() map[string]any {
+func (p *Player) nowPlaying() map[string]any {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	resp := map[string]any{"status": p.state, "artist": "", "title": "", "url": ""}
@@ -332,14 +309,14 @@ func (p *Player) NowPlaying() map[string]any {
 }
 
 func (p *Player) playNext() {
-	if t := p.q.Next(); t != nil {
+	if t := p.q.next(); t != nil {
 		p.cur = t
 		p.state = "playing"
 		log.Printf("Next track: %s", p.cur.Title)
 		return
 	}
-	if p.pl != nil && p.pl.IsEnabled() {
-		if t := p.pl.GetNext(); t != nil {
+	if p.pl != nil && p.pl.isEnabledVal() {
+		if t := p.pl.getNext(); t != nil {
 			p.cur = t
 			p.state = "playing"
 			log.Printf("Next track (playlist): %s", p.cur.Title)
@@ -352,11 +329,11 @@ func (p *Player) playNext() {
 }
 
 func (p *Player) canRepeat(id string) bool {
-	limit := p.cfg.Get().RepeatLimit
+	limit := p.cfg.get().RepeatLimit
 	if limit == 0 {
 		return true
 	}
-	hist := p.hist.Snapshot()
+	hist := p.hist.snapshot()
 	cnt := 0
 	for i := len(hist) - 1; i >= 0 && cnt < limit; i-- {
 		if hist[i].VideoID == id {
@@ -374,28 +351,26 @@ func (p *Player) broadcast() {
 	}
 }
 
-func (p *Player) buildState() State {
-	hist := p.hist.Snapshot()
-	items := p.q.Snapshot()
-	all := make([]*queue.Track, 0, len(hist)+1+len(items))
+func (p *Player) buildState() PlayerState {
+	hist := p.hist.snapshot()
+	items := p.q.snapshot()
+	all := make([]*Track, 0, len(hist)+1+len(items))
 	all = append(all, hist...)
 	pos := len(hist)
 	if p.cur != nil {
 		all = append(all, p.cur)
 	}
 	all = append(all, items...)
-
-	var plState PlaylistState
+	var plState PlaylistStatus
 	if p.pl != nil {
-		plState = PlaylistState{
-			Loaded:       p.pl.Loaded(),
-			Enabled:      p.pl.IsEnabled(),
-			Shuffled:     p.pl.IsShuffled(),
-			PlaylistID:   p.pl.PlaylistID(),
-			TotalTracks:  p.pl.Len(),
-			CurrentIndex: p.pl.CurrentIndex(),
+		plState = PlaylistStatus{
+			Loaded:       p.pl.loaded(),
+			Enabled:      p.pl.isEnabledVal(),
+			Shuffled:     p.pl.isShuffledVal(),
+			PlaylistID:   p.pl.getPlaylistID(),
+			TotalTracks:  p.pl.lenVal(),
+			CurrentIndex: p.pl.currentIndexVal(),
 		}
 	}
-
-	return State{Action: p.state, Current: p.cur, Queue: all, Position: pos, Playlist: plState}
+	return PlayerState{Action: p.state, Current: p.cur, Queue: all, Position: pos, Playlist: plState}
 }

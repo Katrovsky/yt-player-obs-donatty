@@ -1,4 +1,4 @@
-package api
+package main
 
 import (
 	"embed"
@@ -10,13 +10,9 @@ import (
 	"sync"
 
 	"github.com/gorilla/websocket"
-
-	"yt-player/internal/player"
-	"yt-player/internal/playlist"
-	"yt-player/internal/youtube"
 )
 
-type response struct {
+type apiResponse struct {
 	Success bool   `json:"success"`
 	Message string `json:"message,omitempty"`
 	Data    any    `json:"data,omitempty"`
@@ -28,14 +24,14 @@ type Hub struct {
 	upgrader websocket.Upgrader
 }
 
-func NewHub() *Hub {
+func newHub() *Hub {
 	return &Hub{
 		conns:    make(map[*websocket.Conn]struct{}),
 		upgrader: websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }},
 	}
 }
 
-func (h *Hub) Send(st player.State) {
+func (h *Hub) send(st PlayerState) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for c := range h.conns {
@@ -47,18 +43,18 @@ func (h *Hub) Send(st player.State) {
 }
 
 type Server struct {
-	p           *player.Player
+	p           *Player
 	hub         *Hub
-	yt          *youtube.Client
-	dm          bool
+	yt          *YouTubeClient
+	donationOn  bool
 	staticFiles embed.FS
 }
 
-func NewServer(p *player.Player, hub *Hub, yt *youtube.Client, donationEnabled bool, static embed.FS) *Server {
-	return &Server{p: p, hub: hub, yt: yt, dm: donationEnabled, staticFiles: static}
+func newServer(p *Player, hub *Hub, yt *YouTubeClient, donationOn bool, static embed.FS) *Server {
+	return &Server{p: p, hub: hub, yt: yt, donationOn: donationOn, staticFiles: static}
 }
 
-func (s *Server) Register(mux *http.ServeMux) {
+func (s *Server) register(mux *http.ServeMux) {
 	routes := map[string]http.HandlerFunc{
 		"/api/add":              s.handleAdd,
 		"/api/add-url":          s.handleAdd,
@@ -105,14 +101,14 @@ func cors(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-func reply(w http.ResponseWriter, code int, r response) {
+func reply(w http.ResponseWriter, code int, r apiResponse) {
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(r)
 }
 
 func requirePost(w http.ResponseWriter, r *http.Request) bool {
 	if r.Method != http.MethodPost {
-		reply(w, http.StatusMethodNotAllowed, response{Success: false, Message: "Method not allowed"})
+		reply(w, http.StatusMethodNotAllowed, apiResponse{Success: false, Message: "Method not allowed"})
 		return false
 	}
 	return true
@@ -132,74 +128,74 @@ func (s *Server) handleAdd(w http.ResponseWriter, r *http.Request) {
 	}
 	paid := r.URL.Query().Get("paid") == "true"
 	if rawURL == "" {
-		reply(w, http.StatusBadRequest, response{Success: false, Message: "Missing video URL"})
+		reply(w, http.StatusBadRequest, apiResponse{Success: false, Message: "Missing video URL"})
 		return
 	}
-	vid := youtube.ExtractID(rawURL)
+	vid := extractVideoID(rawURL)
 	if vid == "" {
-		reply(w, http.StatusBadRequest, response{Success: false, Message: "Invalid YouTube URL"})
+		reply(w, http.StatusBadRequest, apiResponse{Success: false, Message: "Invalid YouTube URL"})
 		return
 	}
-	if err := s.p.ValidateAndAdd(vid, by, paid); err != nil {
-		reply(w, http.StatusBadRequest, response{Success: false, Message: err.Error()})
+	if err := s.p.validateAndAdd(vid, by, paid); err != nil {
+		reply(w, http.StatusBadRequest, apiResponse{Success: false, Message: err.Error()})
 		return
 	}
-	reply(w, http.StatusOK, response{Success: true, Message: "Track added to queue"})
+	reply(w, http.StatusOK, apiResponse{Success: true, Message: "Track added to queue"})
 }
 
 func (s *Server) handlePlay(w http.ResponseWriter, r *http.Request) {
 	if !requirePost(w, r) {
 		return
 	}
-	if err := s.p.Play(); err != nil {
-		reply(w, http.StatusBadRequest, response{Success: false, Message: err.Error()})
+	if err := s.p.play(); err != nil {
+		reply(w, http.StatusBadRequest, apiResponse{Success: false, Message: err.Error()})
 		return
 	}
-	reply(w, http.StatusOK, response{Success: true, Message: "Playback started"})
+	reply(w, http.StatusOK, apiResponse{Success: true, Message: "Playback started"})
 }
 
 func (s *Server) handlePause(w http.ResponseWriter, r *http.Request) {
 	if !requirePost(w, r) {
 		return
 	}
-	s.p.Pause()
-	reply(w, http.StatusOK, response{Success: true, Message: "Playback paused"})
+	s.p.pause()
+	reply(w, http.StatusOK, apiResponse{Success: true, Message: "Playback paused"})
 }
 
 func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 	if !requirePost(w, r) {
 		return
 	}
-	s.p.Stop()
-	reply(w, http.StatusOK, response{Success: true, Message: "Playback stopped"})
+	s.p.stop()
+	reply(w, http.StatusOK, apiResponse{Success: true, Message: "Playback stopped"})
 }
 
 func (s *Server) handleNext(w http.ResponseWriter, r *http.Request) {
 	if !requirePost(w, r) {
 		return
 	}
-	s.p.Next()
-	reply(w, http.StatusOK, response{Success: true, Message: "Skipped to next track"})
+	s.p.next()
+	reply(w, http.StatusOK, apiResponse{Success: true, Message: "Skipped to next track"})
 }
 
 func (s *Server) handlePrevious(w http.ResponseWriter, r *http.Request) {
 	if !requirePost(w, r) {
 		return
 	}
-	if err := s.p.Previous(); err != nil {
-		reply(w, http.StatusBadRequest, response{Success: false, Message: err.Error()})
+	if err := s.p.previous(); err != nil {
+		reply(w, http.StatusBadRequest, apiResponse{Success: false, Message: err.Error()})
 		return
 	}
-	reply(w, http.StatusOK, response{Success: true, Message: "Returned to previous track"})
+	reply(w, http.StatusOK, apiResponse{Success: true, Message: "Returned to previous track"})
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
-	reply(w, http.StatusOK, response{Success: true, Data: s.p.Status()})
+	reply(w, http.StatusOK, apiResponse{Success: true, Data: s.p.status()})
 }
 
 func (s *Server) handleQueue(w http.ResponseWriter, r *http.Request) {
-	st := s.p.CurrentState()
-	reply(w, http.StatusOK, response{Success: true, Data: map[string]any{
+	st := s.p.currentState()
+	reply(w, http.StatusOK, apiResponse{Success: true, Data: map[string]any{
 		"queue":   st.Queue,
 		"current": st.Position,
 		"state":   st.Action,
@@ -208,33 +204,33 @@ func (s *Server) handleQueue(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleNowPlaying(w http.ResponseWriter, r *http.Request) {
-	reply(w, http.StatusOK, response{Success: true, Data: s.p.NowPlaying()})
+	reply(w, http.StatusOK, apiResponse{Success: true, Data: s.p.nowPlaying()})
 }
 
 func (s *Server) handleRemove(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost && r.Method != http.MethodDelete {
-		reply(w, http.StatusMethodNotAllowed, response{Success: false, Message: "Method not allowed"})
+		reply(w, http.StatusMethodNotAllowed, apiResponse{Success: false, Message: "Method not allowed"})
 		return
 	}
 	idx, err := strconv.Atoi(r.URL.Query().Get("index"))
 	if err != nil || idx < 0 {
-		reply(w, http.StatusBadRequest, response{Success: false, Message: "Invalid index parameter"})
+		reply(w, http.StatusBadRequest, apiResponse{Success: false, Message: "Invalid index parameter"})
 		return
 	}
-	t, err := s.p.Remove(idx)
+	t, err := s.p.remove(idx)
 	if err != nil {
-		reply(w, http.StatusBadRequest, response{Success: false, Message: err.Error()})
+		reply(w, http.StatusBadRequest, apiResponse{Success: false, Message: err.Error()})
 		return
 	}
-	reply(w, http.StatusOK, response{Success: true, Message: "Track removed from queue", Data: t})
+	reply(w, http.StatusOK, apiResponse{Success: true, Message: "Track removed from queue", Data: t})
 }
 
 func (s *Server) handleClear(w http.ResponseWriter, r *http.Request) {
 	if !requirePost(w, r) {
 		return
 	}
-	n := s.p.Clear()
-	reply(w, http.StatusOK, response{Success: true, Message: fmt.Sprintf("Queue cleared (%d tracks removed)", n)})
+	n := s.p.clear()
+	reply(w, http.StatusOK, apiResponse{Success: true, Message: fmt.Sprintf("Queue cleared (%d tracks removed)", n)})
 }
 
 func (s *Server) handlePlaylistSet(w http.ResponseWriter, r *http.Request) {
@@ -243,93 +239,94 @@ func (s *Server) handlePlaylistSet(w http.ResponseWriter, r *http.Request) {
 	}
 	pu := r.URL.Query().Get("url")
 	if pu == "" {
-		reply(w, http.StatusBadRequest, response{Success: false, Message: "Missing playlist URL"})
+		reply(w, http.StatusBadRequest, apiResponse{Success: false, Message: "Missing playlist URL"})
 		return
 	}
-	pl := s.p.Playlist()
+	pl := s.p.getPlaylist()
 	if pl == nil {
-		reply(w, http.StatusInternalServerError, response{Success: false, Message: "Playlist manager not initialized"})
+		reply(w, http.StatusInternalServerError, apiResponse{Success: false, Message: "Playlist manager not initialized"})
 		return
 	}
-	if err := pl.Load(pu); err != nil {
-		reply(w, http.StatusBadRequest, response{Success: false, Message: err.Error()})
+	if err := pl.load(pu); err != nil {
+		reply(w, http.StatusBadRequest, apiResponse{Success: false, Message: err.Error()})
 		return
 	}
-	reply(w, http.StatusOK, response{Success: true, Message: "Playlist loaded successfully", Data: pl.Status()})
+	reply(w, http.StatusOK, apiResponse{Success: true, Message: "Playlist loaded successfully", Data: pl.status()})
 }
 
 func (s *Server) handlePlaylistEnable(w http.ResponseWriter, r *http.Request) {
 	if !requirePost(w, r) {
 		return
 	}
-	pl := s.p.Playlist()
+	pl := s.p.getPlaylist()
 	if pl == nil {
-		reply(w, http.StatusBadRequest, response{Success: false, Message: "No playlist loaded"})
+		reply(w, http.StatusBadRequest, apiResponse{Success: false, Message: "No playlist loaded"})
 		return
 	}
-	pl.Enable()
-	s.p.BroadcastPlaylistUpdate()
-	if err := s.p.Play(); err != nil {
+	pl.enable()
+	s.p.broadcastPlaylistUpdate()
+	if err := s.p.play(); err != nil {
 		log.Println("Play after enable:", err)
 	}
-	reply(w, http.StatusOK, response{Success: true, Message: "Playlist enabled", Data: pl.Status()})
+	reply(w, http.StatusOK, apiResponse{Success: true, Message: "Playlist enabled", Data: pl.status()})
 }
 
 func (s *Server) handlePlaylistDisable(w http.ResponseWriter, r *http.Request) {
 	if !requirePost(w, r) {
 		return
 	}
-	pl := s.p.Playlist()
+	pl := s.p.getPlaylist()
 	if pl == nil {
-		reply(w, http.StatusBadRequest, response{Success: false, Message: "No playlist loaded"})
+		reply(w, http.StatusBadRequest, apiResponse{Success: false, Message: "No playlist loaded"})
 		return
 	}
-	pl.Disable()
-	s.p.BroadcastPlaylistUpdate()
-	reply(w, http.StatusOK, response{Success: true, Message: "Playlist disabled", Data: pl.Status()})
+	pl.disable()
+	s.p.broadcastPlaylistUpdate()
+	reply(w, http.StatusOK, apiResponse{Success: true, Message: "Playlist disabled", Data: pl.status()})
 }
 
 func (s *Server) handlePlaylistStatus(w http.ResponseWriter, r *http.Request) {
-	pl := s.p.Playlist()
+	pl := s.p.getPlaylist()
 	if pl == nil {
-		reply(w, http.StatusOK, response{Success: true, Data: map[string]any{"enabled": false, "loaded": false}})
+		reply(w, http.StatusOK, apiResponse{Success: true, Data: map[string]any{"enabled": false, "loaded": false}})
 		return
 	}
-	reply(w, http.StatusOK, response{Success: true, Data: pl.Status()})
+	reply(w, http.StatusOK, apiResponse{Success: true, Data: pl.status()})
 }
 
 func (s *Server) handlePlaylistReload(w http.ResponseWriter, r *http.Request) {
 	if !requirePost(w, r) {
 		return
 	}
-	pl := s.p.Playlist()
+	pl := s.p.getPlaylist()
 	if pl == nil {
-		reply(w, http.StatusBadRequest, response{Success: false, Message: "No playlist loaded"})
+		reply(w, http.StatusBadRequest, apiResponse{Success: false, Message: "No playlist loaded"})
 		return
 	}
-	st := pl.Status()
+	st := pl.status()
 	pid, _ := st["playlist_id"].(string)
 	if pid == "" {
-		reply(w, http.StatusBadRequest, response{Success: false, Message: "No playlist loaded"})
+		reply(w, http.StatusBadRequest, apiResponse{Success: false, Message: "No playlist loaded"})
 		return
 	}
-	if err := pl.Load("https://www.youtube.com/playlist?list=" + pid); err != nil {
-		reply(w, http.StatusInternalServerError, response{Success: false, Message: "Failed to reload: " + err.Error()})
+	if err := pl.reload("https://www.youtube.com/playlist?list=" + pid); err != nil {
+		reply(w, http.StatusInternalServerError, apiResponse{Success: false, Message: "Failed to reload: " + err.Error()})
 		return
 	}
-	reply(w, http.StatusOK, response{Success: true, Message: "Playlist reloaded successfully", Data: pl.Status()})
+	reply(w, http.StatusOK, apiResponse{Success: true, Message: "Playlist reloaded successfully", Data: pl.status()})
 }
 
 func (s *Server) handlePlaylistTracks(w http.ResponseWriter, r *http.Request) {
-	pl := s.p.Playlist()
+	pl := s.p.getPlaylist()
 	if pl == nil {
-		reply(w, http.StatusOK, response{Success: true, Data: map[string]any{"tracks": []any{}}})
+		reply(w, http.StatusOK, apiResponse{Success: true, Data: map[string]any{"tracks": []any{}}})
 		return
 	}
-	reply(w, http.StatusOK, response{Success: true, Data: map[string]any{
-		"tracks":        pl.Tracks(),
-		"current_index": pl.CurrentIndex(),
-		"total":         len(pl.Tracks()),
+	tracks := pl.getTracks()
+	reply(w, http.StatusOK, apiResponse{Success: true, Data: map[string]any{
+		"tracks":        tracks,
+		"current_index": pl.currentIndexVal(),
+		"total":         len(tracks),
 	}})
 }
 
@@ -339,32 +336,32 @@ func (s *Server) handlePlaylistJump(w http.ResponseWriter, r *http.Request) {
 	}
 	idx, err := strconv.Atoi(r.URL.Query().Get("index"))
 	if err != nil || idx < 0 {
-		reply(w, http.StatusBadRequest, response{Success: false, Message: "Invalid index parameter"})
+		reply(w, http.StatusBadRequest, apiResponse{Success: false, Message: "Invalid index parameter"})
 		return
 	}
-	if err := s.p.PlaylistJump(idx); err != nil {
-		reply(w, http.StatusBadRequest, response{Success: false, Message: err.Error()})
+	if err := s.p.playlistJump(idx); err != nil {
+		reply(w, http.StatusBadRequest, apiResponse{Success: false, Message: err.Error()})
 		return
 	}
-	reply(w, http.StatusOK, response{Success: true, Message: "Jumped to track"})
+	reply(w, http.StatusOK, apiResponse{Success: true, Message: "Jumped to track"})
 }
 
 func (s *Server) handlePlaylistShuffle(w http.ResponseWriter, r *http.Request) {
 	if !requirePost(w, r) {
 		return
 	}
-	pl := s.p.Playlist()
+	pl := s.p.getPlaylist()
 	if pl == nil {
-		reply(w, http.StatusBadRequest, response{Success: false, Message: "No playlist loaded"})
+		reply(w, http.StatusBadRequest, apiResponse{Success: false, Message: "No playlist loaded"})
 		return
 	}
-	pl.ToggleShuffle()
-	s.p.BroadcastPlaylistUpdate()
-	reply(w, http.StatusOK, response{Success: true, Message: "Playlist shuffle toggled", Data: pl.Status()})
+	pl.toggleShuffle()
+	s.p.broadcastPlaylistUpdate()
+	reply(w, http.StatusOK, apiResponse{Success: true, Message: "Playlist shuffle toggled", Data: pl.status()})
 }
 
 func (s *Server) handleDonationStatus(w http.ResponseWriter, r *http.Request) {
-	reply(w, http.StatusOK, response{Success: true, Data: map[string]any{"enabled": s.dm}})
+	reply(w, http.StatusOK, apiResponse{Success: true, Data: map[string]any{"enabled": s.donationOn}})
 }
 
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
@@ -376,7 +373,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	s.hub.conns[conn] = struct{}{}
 	s.hub.mu.Unlock()
 
-	conn.WriteJSON(s.p.CurrentState())
+	conn.WriteJSON(s.p.currentState())
 
 	for {
 		if _, _, err := conn.ReadMessage(); err != nil {
@@ -401,12 +398,8 @@ func (s *Server) handleStatic(name, contentType string) http.HandlerFunc {
 	}
 }
 
-func BroadcastLoop(p *player.Player, hub *Hub) {
-	for st := range p.Updates() {
-		hub.Send(st)
+func broadcastLoop(p *Player, hub *Hub) {
+	for st := range p.updates {
+		hub.send(st)
 	}
-}
-
-func (s *Server) SetPlaylist(pl *playlist.Manager) {
-	s.p.SetPlaylist(pl)
 }

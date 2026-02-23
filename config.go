@@ -1,4 +1,4 @@
-package config
+package main
 
 import (
 	"encoding/json"
@@ -23,12 +23,12 @@ type Config struct {
 	FallbackPlaylistURL string `json:"fallback_playlist_url"`
 }
 
-type Manager struct {
+type ConfigManager struct {
 	mu  sync.RWMutex
 	cfg Config
 }
 
-func Load() (*Manager, error) {
+func loadConfig() (*ConfigManager, error) {
 	data, err := os.ReadFile("config.json")
 	if err != nil {
 		return nil, err
@@ -40,26 +40,24 @@ func Load() (*Manager, error) {
 	if cfg.MaxQueueSize == 0 {
 		cfg.MaxQueueSize = 100
 	}
-	return &Manager{cfg: cfg}, nil
+	return &ConfigManager{cfg: cfg}, nil
 }
 
-func (m *Manager) Get() Config {
+func (m *ConfigManager) get() Config {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.cfg
 }
 
-func (m *Manager) Watch() {
+func (m *ConfigManager) watch() {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		log.Fatal("Error creating watcher:", err)
 	}
 	defer watcher.Close()
-
 	if err := watcher.Add(filepath.Dir("config.json")); err != nil {
 		log.Fatal("Error watching config directory:", err)
 	}
-
 	for {
 		select {
 		case event := <-watcher.Events:
@@ -72,7 +70,7 @@ func (m *Manager) Watch() {
 	}
 }
 
-func (m *Manager) reload() {
+func (m *ConfigManager) reload() {
 	data, err := os.ReadFile("config.json")
 	if err != nil {
 		return

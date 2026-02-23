@@ -18,9 +18,9 @@ builds:
       - CGO_ENABLED=0
     
     ldflags:
-      - -s -w -X main.version={{.Version}}
-
-    gcflags:
+      - -s -w
+    
+    flags:
       - -trimpath
 
     goos:
