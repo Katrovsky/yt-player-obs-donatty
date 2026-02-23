@@ -320,9 +320,9 @@ func (p *Player) NowPlaying() map[string]any {
 	}
 	full := p.cur.Title
 	art, tit := "", full
-	if i := strings.Index(full, " - "); i >= 0 {
-		art = full[:i]
-		tit = full[i+3:]
+	if before, after, ok := strings.Cut(full, " - "); ok {
+		art = before
+		tit = after
 	}
 	resp["artist"] = art
 	resp["title"] = tit
