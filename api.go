@@ -68,6 +68,7 @@ func (s *Server) register(mux *http.ServeMux) {
 		"/api/nowplaying":       s.handleNowPlaying,
 		"/api/remove":           s.handleRemove,
 		"/api/clear":            s.handleClear,
+		"/api/remove-played":    s.handleRemovePlayed,
 		"/api/playlist/set":     s.handlePlaylistSet,
 		"/api/playlist/enable":  s.handlePlaylistEnable,
 		"/api/playlist/disable": s.handlePlaylistDisable,
@@ -223,6 +224,14 @@ func (s *Server) handleRemove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reply(w, http.StatusOK, apiResponse{Success: true, Message: "Track removed from queue", Data: t})
+}
+
+func (s *Server) handleRemovePlayed(w http.ResponseWriter, r *http.Request) {
+	if !requirePost(w, r) {
+		return
+	}
+	n := s.p.clearHistory()
+	reply(w, http.StatusOK, apiResponse{Success: true, Message: fmt.Sprintf("Removed %d played tracks", n)})
 }
 
 func (s *Server) handleClear(w http.ResponseWriter, r *http.Request) {
