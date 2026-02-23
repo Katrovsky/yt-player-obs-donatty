@@ -339,7 +339,7 @@
     .badge-now  { background: color-mix(in srgb, var(--green) 15%, transparent); color: var(--green); }
     .q-dur { font-family: 'DM Mono', monospace; font-size: 0.7rem; color: var(--txt3); }
     .q-rm {
-      opacity: 0;
+      opacity: 1;
       width: 22px; height: 22px;
       border-radius: 4px;
       border: 1px solid var(--border2);
@@ -352,7 +352,6 @@
       transition: opacity 0.15s, border-color 0.15s, color 0.15s;
       flex-shrink: 0;
     }
-    .q-item:hover .q-rm { opacity: 1; }
     .q-rm:hover { border-color: var(--red); color: var(--red); }
 
     .empty-state {
@@ -423,26 +422,67 @@
 
     .btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 
-    .pl-status-box {
-      margin-top: 10px;
-      padding: 10px;
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-    }
-    .pl-status-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 5px;
-      font-size: 0.75rem;
-    }
-    .pl-status-row:last-child { margin-bottom: 0; }
-    .pl-status-key { color: var(--txt3); }
-    .pl-status-val { color: var(--txt); font-family: 'DM Mono', monospace; font-size: 0.72rem; }
-    .pl-status-val.active { color: var(--green); }
-
     .btn-group-gap { margin-top: 6px; }
+
+    /* ── Playlist toggle ── */
+    .pl-toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+    .pl-toggle-label { font-size: 0.78rem; color: var(--txt2); }
+    .pl-toggle {
+      position: relative;
+      width: 40px; height: 22px;
+      background: var(--surface3);
+      border: 1px solid var(--border2);
+      border-radius: 11px;
+      cursor: pointer;
+      transition: background 0.2s, border-color 0.2s;
+      flex-shrink: 0;
+    }
+    .pl-toggle::after {
+      content: '';
+      position: absolute;
+      top: 3px; left: 3px;
+      width: 14px; height: 14px;
+      border-radius: 50%;
+      background: var(--txt3);
+      transition: transform 0.2s, background 0.2s;
+    }
+    .pl-toggle.on { background: color-mix(in srgb, var(--green) 20%, var(--surface3)); border-color: var(--green); }
+    .pl-toggle.on::after { transform: translateX(18px); background: var(--green); }
+
+    /* ── Playlist status line ── */
+    .pl-status-line {
+      font-size: 0.7rem;
+      color: var(--txt3);
+      font-family: 'DM Mono', monospace;
+      margin-top: 6px;
+      min-height: 16px;
+    }
+
+    /* ── Playlist load row ── */
+    .pl-loaded-row {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 6px;
+    }
+    .pl-loaded-row.visible { display: flex; }
+    .pl-loaded-name {
+      font-size: 0.78rem; color: var(--txt2);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      flex: 1; min-width: 0;
+    }
+    .pl-change-btn {
+      font-size: 0.7rem; color: var(--txt3);
+      background: none; border: none; cursor: pointer;
+      padding: 0 0 0 8px; font-family: 'DM Sans', sans-serif;
+      flex-shrink: 0; transition: color 0.15s;
+    }
+    .pl-change-btn:hover { color: var(--txt); }
 
     /* ── Playlist panel (slide-in) ── */
     .playlist-panel {
@@ -545,29 +585,27 @@
 
       <div class="field-group">
         <label class="field-label">Fallback playlist</label>
-        <input type="text" id="plUrl" placeholder="YouTube playlist URL" style="margin-bottom:6px"/>
-        <button class="btn btn-ghost" onclick="api.plSet()" id="plSetBtn" style="margin-bottom:6px">Load playlist</button>
-        <div class="btn-row">
-          <button class="btn btn-ghost" onclick="api.plToggle(1)">Enable</button>
-          <button class="btn btn-danger-ghost" onclick="api.plToggle(0)">Disable</button>
+        <!-- URL input — скрывается после загрузки -->
+        <div id="plLoadSection">
+          <input type="text" id="plUrl" placeholder="YouTube playlist URL" style="margin-bottom:6px"/>
+          <button class="btn btn-ghost" onclick="api.plSet()" id="plSetBtn">Load playlist</button>
         </div>
-        <div class="btn-row btn-group-gap">
-          <button class="btn btn-ghost" onclick="api.plReload()" id="plReload">Reload</button>
-          <button class="btn btn-ghost" onclick="api.plShuffle()" id="plShuffle">Shuffle</button>
+        <!-- После загрузки: ID плейлиста + кнопка Change -->
+        <div class="pl-loaded-row" id="plLoadedRow">
+          <span class="pl-loaded-name" id="plLoadedName">—</span>
+          <button class="pl-change-btn" onclick="ui.showPlLoad()">Change</button>
         </div>
-        <div class="pl-status-box" id="plStatusBox" style="display:none">
-          <div class="pl-status-row">
-            <span class="pl-status-key">Status</span>
-            <span class="pl-status-val" id="plSt">—</span>
+        <!-- Контролы — видны только когда загружен -->
+        <div id="plControls" style="display:none">
+          <div class="pl-toggle-row">
+            <span class="pl-toggle-label">Playlist</span>
+            <div class="pl-toggle" id="plToggle" onclick="api.plToggle()"></div>
           </div>
-          <div class="pl-status-row">
-            <span class="pl-status-key">Tracks</span>
-            <span class="pl-status-val" id="plTr">—</span>
+          <div class="btn-row">
+            <button class="btn btn-ghost" onclick="api.plReload()" id="plReload">Reload</button>
+            <button class="btn btn-ghost" onclick="api.plShuffle()" id="plShuffle">Shuffle</button>
           </div>
-          <div class="pl-status-row">
-            <span class="pl-status-key">Shuffle</span>
-            <span class="pl-status-val" id="plShuffleStatus">Off</span>
-          </div>
+          <div class="pl-status-line" id="plStatusLine"></div>
         </div>
       </div>
 
@@ -618,6 +656,7 @@
           <span class="qstat"><span class="qstat-num" id="sFree">0</span> free</span>
         </div>
         <div class="header-sep-flex"></div>
+        <button class="btn-clear" onclick="api.rmPlayed()" id="rmPlayedBtn" style="margin-right:6px">Remove played</button>
         <button class="btn-clear" onclick="api.cmd('clear')">Clear all</button>
       </div>
 
@@ -699,8 +738,9 @@
       if (d.success) await this.loadPlaylistTracks();
       else alert(d.message);
     },
-    async plToggle(e) {
-      const d = await this.fetch(`/api/playlist/${e ? 'enable' : 'disable'}`, { method: 'POST' });
+    async plToggle() {
+      const isOn = document.getElementById('plToggle').classList.contains('on');
+      const d = await this.fetch(`/api/playlist/${isOn ? 'disable' : 'enable'}`, { method: 'POST' });
       if (d.success) { ui.playlist(d.data); await this.loadPlaylistTracks(); }
     },
     async plReload() {
@@ -717,6 +757,9 @@
       if (d.success) { ui.playlist(d.data); await this.loadPlaylistTracks(); }
     },
     async rm(i) { await this.fetch(`/api/remove?index=${i}`, { method: 'POST' }); },
+    async rmPlayed() {
+      await this.fetch('/api/remove-played', { method: 'POST' });
+    },
   };
 
   const ui = {
@@ -766,6 +809,8 @@
       document.getElementById('mPlaylist').textContent = plTracks;
 
       const list = document.getElementById('qList');
+      const rmPlayedBtn = document.getElementById('rmPlayedBtn');
+      if (rmPlayedBtn) rmPlayedBtn.style.display = pos > 0 ? '' : 'none';
       if (qu.length === 0) {
         list.innerHTML = '<div class="empty-state">Queue is empty</div>';
         return;
@@ -804,17 +849,29 @@
 
     playlist(d) {
       if (!d) return;
-      const box = document.getElementById('plStatusBox');
+      const controls = document.getElementById('plControls');
+      const loadedRow = document.getElementById('plLoadedRow');
+      const loadSection = document.getElementById('plLoadSection');
+
       if (!d.loaded || d.total_tracks === 0) {
-        box.style.display = 'none';
+        controls.style.display = 'none';
+        loadedRow.classList.remove('visible');
+        loadSection.style.display = 'block';
         return;
       }
-      box.style.display = 'block';
-      const stEl = document.getElementById('plSt');
-      stEl.textContent = d.enabled ? 'Enabled' : 'Disabled';
-      stEl.className = 'pl-status-val' + (d.enabled ? ' active' : '');
-      document.getElementById('plTr').textContent = d.total_tracks;
-      document.getElementById('plShuffleStatus').textContent = d.shuffled ? 'On' : 'Off';
+
+      // Playlist loaded — show controls, hide URL input
+      loadSection.style.display = 'none';
+      loadedRow.classList.add('visible');
+      document.getElementById('plLoadedName').textContent = d.playlist_id || 'Playlist loaded';
+
+      controls.style.display = 'block';
+      const toggle = document.getElementById('plToggle');
+      toggle.classList.toggle('on', !!d.enabled);
+
+      const parts = [d.total_tracks + ' tracks'];
+      if (d.shuffled) parts.push('shuffle on');
+      document.getElementById('plStatusLine').textContent = parts.join(' · ');
     },
 
     playlistTracks(d) {
@@ -837,12 +894,23 @@
       list.innerHTML = tracks.map((t, i) => {
         const m = Math.floor(t.duration_sec / 60);
         const s = (t.duration_sec % 60).toString().padStart(2, '0');
-        return `<div class="pl-item ${i === cur ? 'active' : ''}" onclick="api.plJump(${i})">
+        return `<div class="pl-item ${i === cur ? 'active' : ''}" onclick="api.plJump(${i})" id="pl-item-${i}">
           <div class="pl-item-title"><span class="pl-item-num">${i + 1}. </span>${t.title}</div>
           <div class="pl-item-dur">${m}:${s}</div>
         </div>`;
       }).join('');
+      // Scroll to active track
+      const active = document.getElementById('pl-item-' + cur);
+      if (active) active.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     },
+  };
+
+  ui.showPlLoad = function() {
+    document.getElementById('plLoadSection').style.display = 'block';
+    document.getElementById('plLoadedRow').classList.remove('visible');
+    document.getElementById('plControls').style.display = 'none';
+    document.getElementById('plUrl').value = '';
+    document.getElementById('plUrl').focus();
   };
 
   function getReconnectDelay() {
