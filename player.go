@@ -240,6 +240,18 @@ func (p *Player) clear() int {
 	return sz
 }
 
+func (p *Player) clearHistory() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	n := p.hist.len()
+	p.hist = newRingBuffer(historySize)
+	if n > 0 {
+		log.Printf("Cleared %d played tracks from history", n)
+		p.broadcast()
+	}
+	return n
+}
+
 func (p *Player) cleanupOld(hours int) {
 	if hours == 0 {
 		return
@@ -297,9 +309,9 @@ func (p *Player) nowPlaying() map[string]any {
 	}
 	full := p.cur.Title
 	art, tit := "", full
-	if before, after, ok := strings.Cut(full, " - "); ok {
-		art = before
-		tit = after
+	if i := strings.Index(full, " - "); i >= 0 {
+		art = full[:i]
+		tit = full[i+3:]
 	}
 	resp["artist"] = art
 	resp["title"] = tit
