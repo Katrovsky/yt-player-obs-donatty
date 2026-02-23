@@ -659,7 +659,7 @@
 </div>
 
 <script>
-  let ws, currSt = 'stopped', reconnectAttempts = 0;
+  let ws, currSt = 'stopped', reconnectAttempts = 0, reconnectTimer = null;
   const base = window.location.origin;
 
   const api = {
@@ -685,6 +685,10 @@
       if (!d.success) alert(d.message);
     },
     async pp() { await this.cmd(currSt === 'playing' ? 'pause' : 'play'); },
+    async loadPlaylistTracks() {
+      const d = await this.fetch('/api/playlist/tracks');
+      if (d.success) ui.playlistTracks(d.data);
+    },
     async plSet() {
       const u = document.getElementById('plUrl').value.trim();
       const btn = document.getElementById('plSetBtn');
@@ -692,48 +696,27 @@
       btn.disabled = true; btn.textContent = 'Loading…';
       const d = await this.fetch(`/api/playlist/set?url=${encodeURIComponent(u)}`, { method: 'POST' });
       btn.disabled = false; btn.textContent = 'Load playlist';
-      if (d.success) { await this.plTracks(); await this.plStatus(); }
+      if (d.success) await this.loadPlaylistTracks();
       else alert(d.message);
     },
     async plToggle(e) {
       const d = await this.fetch(`/api/playlist/${e ? 'enable' : 'disable'}`, { method: 'POST' });
-      if (d.success) { await this.plTracks(); await this.plStatus(); }
+      if (d.success) { ui.playlist(d.data); await this.loadPlaylistTracks(); }
     },
     async plReload() {
       const btn = document.getElementById('plReload');
       btn.disabled = true; btn.textContent = 'Reloading…';
       const d = await this.fetch('/api/playlist/reload', { method: 'POST' });
       btn.disabled = false; btn.textContent = 'Reload';
-      if (d.success) { await this.plTracks(); await this.plStatus(); }
+      if (d.success) await this.loadPlaylistTracks();
       else alert(d.message);
     },
     async plJump(i) { await this.fetch(`/api/playlist/jump?index=${i}`, { method: 'POST' }); },
     async plShuffle() {
       const d = await this.fetch('/api/playlist/shuffle', { method: 'POST' });
-      if (d.success) { await this.plTracks(); await this.plStatus(); }
+      if (d.success) { ui.playlist(d.data); await this.loadPlaylistTracks(); }
     },
     async rm(i) { await this.fetch(`/api/remove?index=${i}`, { method: 'POST' }); },
-    async getDonationStatus() {
-      const d = await this.fetch('/api/donation/status');
-      if (!d.success) return;
-      const dot = document.getElementById('donDot');
-      const lbl = document.getElementById('donLabel');
-      if (d.data.enabled) {
-        dot.classList.remove('off');
-        lbl.textContent = 'Donations active';
-      } else {
-        dot.classList.add('off');
-        lbl.textContent = 'Donations off';
-      }
-    },
-    async plTracks() {
-      const d = await this.fetch('/api/playlist/tracks');
-      if (d.success) ui.plTracks(d.data);
-    },
-    async plStatus() {
-      const d = await this.fetch('/api/playlist/status');
-      if (d.success) ui.plStatus(d.data);
-    },
   };
 
   const ui = {
@@ -819,7 +802,23 @@
       }).join('');
     },
 
-    plTracks(d) {
+    playlist(d) {
+      if (!d) return;
+      const box = document.getElementById('plStatusBox');
+      if (!d.loaded || d.total_tracks === 0) {
+        box.style.display = 'none';
+        return;
+      }
+      box.style.display = 'block';
+      const stEl = document.getElementById('plSt');
+      stEl.textContent = d.enabled ? 'Enabled' : 'Disabled';
+      stEl.className = 'pl-status-val' + (d.enabled ? ' active' : '');
+      document.getElementById('plTr').textContent = d.total_tracks;
+      document.getElementById('plShuffleStatus').textContent = d.shuffled ? 'On' : 'Off';
+    },
+
+    playlistTracks(d) {
+      if (!d) return;
       const tracks = d.tracks || [];
       const cur = d.current_index || 0;
       const panel = document.getElementById('plPanel');
@@ -844,20 +843,6 @@
         </div>`;
       }).join('');
     },
-
-    plStatus(d) {
-      const box = document.getElementById('plStatusBox');
-      if (!d.loaded || d.total_tracks === 0) {
-        box.style.display = 'none';
-        return;
-      }
-      box.style.display = 'block';
-      const stEl = document.getElementById('plSt');
-      stEl.textContent = d.enabled ? 'Enabled' : 'Disabled';
-      stEl.className = 'pl-status-val' + (d.enabled ? ' active' : '');
-      document.getElementById('plTr').textContent = d.total_tracks;
-      document.getElementById('plShuffleStatus').textContent = d.shuffled ? 'On' : 'Off';
-    },
   };
 
   function getReconnectDelay() {
@@ -868,24 +853,25 @@
     ws = new WebSocket('ws://' + location.host + '/ws');
     ws.onopen = () => {
       reconnectAttempts = 0;
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
       document.getElementById('connDot').classList.add('on');
       document.getElementById('connLabel').textContent = 'online';
-      api.getDonationStatus();
-      api.plTracks();
-      api.plStatus();
+      api.fetch('/api/playlist/status').then(d => { if (d.success) ui.playlist(d.data); });
+      api.loadPlaylistTracks();
     };
     ws.onmessage = e => {
       try {
         const d = JSON.parse(e.data);
         ui.update(d);
         ui.queue(d);
-        api.plStatus();
-        api.plTracks();
+        ui.playlist(d.playlist);
       } catch (_) {}
     };
     ws.onclose = () => {
       document.getElementById('connDot').classList.remove('on');
-      document.getElementById('connLabel').textContent = 'reconnecting…';
+      reconnectTimer = setTimeout(() => {
+        document.getElementById('connLabel').textContent = 'reconnecting…';
+      }, 2000);
       setTimeout(connect, getReconnectDelay());
     };
     ws.onerror = () => {};
@@ -893,10 +879,15 @@
 
   window.addEventListener('load', async () => {
     connect();
-    await api.plStatus();
-    await api.plTracks();
+    const don = await api.fetch('/api/donation/status');
+    if (don.success) {
+      const dot = document.getElementById('donDot');
+      const lbl = document.getElementById('donLabel');
+      if (don.data.enabled) { dot.classList.remove('off'); lbl.textContent = 'Donations active'; }
+      else { dot.classList.add('off'); lbl.textContent = 'Donations off'; }
+    }
     document.addEventListener('keydown', e => {
-      if (e.target.tagName === 'INPUT') return;
+      if (e.target.matches('input,textarea,select,[contenteditable]')) return;
       if (e.code === 'Space')      { e.preventDefault(); api.pp(); }
       else if (e.code === 'ArrowRight') { e.preventDefault(); api.cmd('next'); }
       else if (e.code === 'ArrowLeft')  { e.preventDefault(); api.cmd('previous'); }
