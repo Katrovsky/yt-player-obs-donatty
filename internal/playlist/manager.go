@@ -6,9 +6,11 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 
+	"yt-player/internal/cache"
 	"yt-player/internal/queue"
 	"yt-player/internal/youtube"
 )
@@ -22,6 +24,7 @@ type Manager struct {
 	isEnabled    bool
 	mu           sync.RWMutex
 	ytClient     *youtube.Client
+	cache        *cache.Cache
 }
 
 type apiResponse struct {
@@ -35,11 +38,12 @@ type apiResponse struct {
 	NextPageToken string `json:"nextPageToken"`
 }
 
-func New(yt *youtube.Client) *Manager {
+func New(yt *youtube.Client, c *cache.Cache) *Manager {
 	return &Manager{
 		tracks:     make([]*queue.Track, 0),
 		shuffleMap: make(map[int]int),
 		ytClient:   yt,
+		cache:      c,
 	}
 }
 
@@ -55,12 +59,47 @@ func (m *Manager) Load(playlistURL string) error {
 	m.currentIndex = 0
 	m.mu.Unlock()
 
+	if entry, ok := m.cache.GetPlaylist(pid); ok {
+		log.Printf("Playlist loaded from cache: %d tracks", len(entry.Tracks))
+		m.mu.Lock()
+		for _, t := range entry.Tracks {
+			if !t.Embeddable {
+				continue
+			}
+			m.tracks = append(m.tracks, &queue.Track{
+				VideoID:     t.VideoID,
+				Title:       t.Title,
+				DurationSec: t.DurationSec,
+				Views:       t.Views,
+				AddedAt:     time.Now(),
+				AddedBy:     "Playlist",
+			})
+		}
+		m.reshuffleLocked()
+		m.mu.Unlock()
+		return nil
+	}
+
+	return m.fetchAndCache(pid)
+}
+
+func (m *Manager) Reload(playlistURL string) error {
+	pid := extractPlaylistID(playlistURL)
+	if pid == "" {
+		return fmt.Errorf("invalid playlist URL")
+	}
+	m.cache.DeletePlaylist(pid)
+	return m.Load(playlistURL)
+}
+
+func (m *Manager) fetchAndCache(pid string) error {
 	vids, err := m.fetchAllVideoIDs(pid)
 	if err != nil {
 		return err
 	}
 
 	client := &http.Client{Timeout: 20 * time.Second}
+	var cTracks []cache.PlaylistTrack
 	ok, fail := 0, 0
 	for _, vid := range vids {
 		info, err := m.ytClient.GetVideoInfoWithClient(vid, client)
@@ -68,17 +107,27 @@ func (m *Manager) Load(playlistURL string) error {
 			fail++
 			continue
 		}
-		t := &queue.Track{
+		if !info.Embeddable {
+			fail++
+			continue
+		}
+		m.mu.Lock()
+		m.tracks = append(m.tracks, &queue.Track{
 			VideoID:     vid,
 			Title:       info.Title,
 			DurationSec: info.Duration,
 			Views:       info.Views,
 			AddedAt:     time.Now(),
 			AddedBy:     "Playlist",
-		}
-		m.mu.Lock()
-		m.tracks = append(m.tracks, t)
+		})
 		m.mu.Unlock()
+		cTracks = append(cTracks, cache.PlaylistTrack{
+			VideoID:     vid,
+			Title:       info.Title,
+			DurationSec: info.Duration,
+			Views:       info.Views,
+			Embeddable:  true,
+		})
 		ok++
 	}
 
@@ -86,6 +135,7 @@ func (m *Manager) Load(playlistURL string) error {
 		return fmt.Errorf("no valid tracks found in playlist")
 	}
 	log.Printf("Loaded playlist: %d tracks (%d skipped)", ok, fail)
+	m.cache.SetPlaylist(pid, cache.PlaylistEntry{Tracks: cTracks})
 	m.mu.Lock()
 	m.reshuffleLocked()
 	m.mu.Unlock()
@@ -143,22 +193,14 @@ func fetchPage(client *http.Client, url string) (*apiResponse, error) {
 	return &ar, nil
 }
 
-func extractPlaylistID(url string) string {
-	if len(url) == 34 && url[:2] == "PL" {
-		return url
-	}
-	start := 0
-	for i := len(url) - 1; i >= 0; i-- {
-		if url[i] == '=' {
-			start = i + 1
-			break
-		}
-	}
-	if start > 0 && len(url) >= start+34 {
-		pid := url[start : start+34]
-		if pid[:2] == "PL" {
+func extractPlaylistID(rawURL string) string {
+	if u, err := url.Parse(rawURL); err == nil {
+		if pid := u.Query().Get("list"); len(pid) >= 2 && pid[:2] == "PL" {
 			return pid
 		}
+	}
+	if len(rawURL) >= 34 && rawURL[:2] == "PL" {
+		return rawURL[:34]
 	}
 	return ""
 }

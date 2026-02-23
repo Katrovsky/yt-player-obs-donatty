@@ -63,7 +63,7 @@ func (m *Manager) Watch() {
 	for {
 		select {
 		case event := <-watcher.Events:
-			if event.Name == "config.json" && event.Has(fsnotify.Write) {
+			if filepath.Base(event.Name) == "config.json" && event.Has(fsnotify.Write) {
 				m.reload()
 			}
 		case err := <-watcher.Errors:

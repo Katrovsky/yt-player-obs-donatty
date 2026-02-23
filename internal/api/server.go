@@ -24,12 +24,13 @@ type response struct {
 
 type Hub struct {
 	mu       sync.Mutex
-	conn     *websocket.Conn
+	conns    map[*websocket.Conn]struct{}
 	upgrader websocket.Upgrader
 }
 
 func NewHub() *Hub {
 	return &Hub{
+		conns:    make(map[*websocket.Conn]struct{}),
 		upgrader: websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }},
 	}
 }
@@ -37,12 +38,11 @@ func NewHub() *Hub {
 func (h *Hub) Send(st player.State) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.conn == nil {
-		return
-	}
-	if err := h.conn.WriteJSON(st); err != nil {
-		h.conn.Close()
-		h.conn = nil
+	for c := range h.conns {
+		if err := c.WriteJSON(st); err != nil {
+			c.Close()
+			delete(h.conns, c)
+		}
 	}
 }
 
@@ -268,6 +268,7 @@ func (s *Server) handlePlaylistEnable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pl.Enable()
+	s.p.BroadcastPlaylistUpdate()
 	if err := s.p.Play(); err != nil {
 		log.Println("Play after enable:", err)
 	}
@@ -284,6 +285,7 @@ func (s *Server) handlePlaylistDisable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pl.Disable()
+	s.p.BroadcastPlaylistUpdate()
 	reply(w, http.StatusOK, response{Success: true, Message: "Playlist disabled", Data: pl.Status()})
 }
 
@@ -357,6 +359,7 @@ func (s *Server) handlePlaylistShuffle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pl.ToggleShuffle()
+	s.p.BroadcastPlaylistUpdate()
 	reply(w, http.StatusOK, response{Success: true, Message: "Playlist shuffle toggled", Data: pl.Status()})
 }
 
@@ -370,10 +373,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.hub.mu.Lock()
-	if s.hub.conn != nil {
-		s.hub.conn.Close()
-	}
-	s.hub.conn = conn
+	s.hub.conns[conn] = struct{}{}
 	s.hub.mu.Unlock()
 
 	conn.WriteJSON(s.p.CurrentState())
@@ -381,9 +381,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	for {
 		if _, _, err := conn.ReadMessage(); err != nil {
 			s.hub.mu.Lock()
-			if s.hub.conn == conn {
-				s.hub.conn = nil
-			}
+			delete(s.hub.conns, conn)
 			s.hub.mu.Unlock()
 			conn.Close()
 			return

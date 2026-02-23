@@ -1,7 +1,6 @@
 package queue
 
 import (
-	"sync"
 	"time"
 )
 
@@ -58,18 +57,13 @@ func (r *RingBuffer) Snapshot() []*Track {
 
 type Priority struct {
 	items []*Track
-	mu    sync.RWMutex
 }
 
 func (pq *Priority) Add(t *Track) {
-	pq.mu.Lock()
-	defer pq.mu.Unlock()
 	pq.addLocked(t, false)
 }
 
 func (pq *Priority) AddFront(t *Track) {
-	pq.mu.Lock()
-	defer pq.mu.Unlock()
 	pq.addLocked(t, true)
 }
 
@@ -91,8 +85,6 @@ func (pq *Priority) addLocked(t *Track, front bool) {
 }
 
 func (pq *Priority) Next() *Track {
-	pq.mu.Lock()
-	defer pq.mu.Unlock()
 	if len(pq.items) == 0 {
 		return nil
 	}
@@ -102,22 +94,16 @@ func (pq *Priority) Next() *Track {
 }
 
 func (pq *Priority) Snapshot() []*Track {
-	pq.mu.RLock()
-	defer pq.mu.RUnlock()
 	out := make([]*Track, len(pq.items))
 	copy(out, pq.items)
 	return out
 }
 
 func (pq *Priority) Len() int {
-	pq.mu.RLock()
-	defer pq.mu.RUnlock()
 	return len(pq.items)
 }
 
 func (pq *Priority) RemoveAt(i int) *Track {
-	pq.mu.Lock()
-	defer pq.mu.Unlock()
 	if i < 0 || i >= len(pq.items) {
 		return nil
 	}
@@ -127,7 +113,5 @@ func (pq *Priority) RemoveAt(i int) *Track {
 }
 
 func (pq *Priority) Clear() {
-	pq.mu.Lock()
-	defer pq.mu.Unlock()
 	pq.items = pq.items[:0]
 }

@@ -3,6 +3,7 @@ package player
 import (
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -90,6 +91,9 @@ func (p *Player) ValidateAndAdd(vid, by string, paid bool) error {
 		IsPaid:      paid,
 	}
 
+	if !info.Embeddable {
+		return fmt.Errorf("video is not available for playback")
+	}
 	if cfg.MaxDurationMinutes > 0 && t.DurationSec > cfg.MaxDurationMinutes*60 {
 		return fmt.Errorf("track too long (max %d minutes)", cfg.MaxDurationMinutes)
 	}
@@ -104,15 +108,17 @@ func (p *Player) ValidateAndAdd(vid, by string, paid bool) error {
 		return fmt.Errorf("track recently played (repeat limit reached)")
 	}
 
-	total := p.q.Len()
-	if p.cur != nil {
-		total++
-	}
-	if total >= cfg.MaxQueueSize {
-		return fmt.Errorf("queue is full (max %d tracks)", cfg.MaxQueueSize)
+	if cfg.MaxQueueSize > 0 {
+		total := p.q.Len()
+		if p.cur != nil {
+			total++
+		}
+		if total >= cfg.MaxQueueSize {
+			return fmt.Errorf("queue is full (max %d tracks)", cfg.MaxQueueSize)
+		}
 	}
 
-	wasEmpty := total == 0
+	wasEmpty := p.q.Len() == 0 && p.cur == nil
 	p.q.Add(t)
 	log.Printf("Added: %s by %s (paid=%v)", t.Title, by, paid)
 
@@ -314,12 +320,9 @@ func (p *Player) NowPlaying() map[string]any {
 	}
 	full := p.cur.Title
 	art, tit := "", full
-	for i := 0; i < len(full)-2; i++ {
-		if full[i] == ' ' && full[i+1] == '-' && full[i+2] == ' ' {
-			art = full[:i]
-			tit = full[i+3:]
-			break
-		}
+	if i := strings.Index(full, " - "); i >= 0 {
+		art = full[:i]
+		tit = full[i+3:]
 	}
 	resp["artist"] = art
 	resp["title"] = tit

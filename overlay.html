@@ -19,6 +19,7 @@ body {
   transition: opacity 0.3s ease;
 }
 #player-wrapper.visible { opacity: 1; }
+#player-wrapper.instant { transition: none; }
 #player { width: 100%; height: 100%; }
 </style>
 <script src="https://www.youtube.com/iframe_api"></script>
@@ -68,26 +69,28 @@ function applyState(d) {
 
   if (!t || a === 'stopped') {
     player.stopVideo();
+    wrapper.classList.add('instant');
     wrapper.classList.remove('visible');
     currentVideo = '';
     return;
   }
 
-  if (t.video_id !== currentVideo) {
-    currentVideo = t.video_id;
-    player.loadVideoById({ videoId: t.video_id });
-    if (a === 'playing') {
-      wrapper.classList.add('visible');
-    }
+  if (a === 'paused') {
+    player.pauseVideo();
+    wrapper.classList.add('instant');
+    wrapper.classList.remove('visible');
     return;
   }
 
   if (a === 'playing') {
-    player.playVideo();
+    if (t.video_id !== currentVideo) {
+      currentVideo = t.video_id;
+      player.loadVideoById({ videoId: t.video_id });
+    } else {
+      player.playVideo();
+    }
+    wrapper.classList.remove('instant');
     wrapper.classList.add('visible');
-  } else if (a === 'paused') {
-    player.pauseVideo();
-    wrapper.classList.remove('visible');
   }
 }
 

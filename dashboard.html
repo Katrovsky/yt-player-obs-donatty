@@ -700,7 +700,8 @@
       else alert(d.message);
     },
     async plToggle(e) {
-      await this.fetch(`/api/playlist/${e ? 'enable' : 'disable'}`, { method: 'POST' });
+      const d = await this.fetch(`/api/playlist/${e ? 'enable' : 'disable'}`, { method: 'POST' });
+      if (d.success) { ui.playlist(d.data); await this.loadPlaylistTracks(); }
     },
     async plReload() {
       const btn = document.getElementById('plReload');
@@ -712,8 +713,8 @@
     },
     async plJump(i) { await this.fetch(`/api/playlist/jump?index=${i}`, { method: 'POST' }); },
     async plShuffle() {
-      await this.fetch('/api/playlist/shuffle', { method: 'POST' });
-      await this.loadPlaylistTracks();
+      const d = await this.fetch('/api/playlist/shuffle', { method: 'POST' });
+      if (d.success) { ui.playlist(d.data); await this.loadPlaylistTracks(); }
     },
     async rm(i) { await this.fetch(`/api/remove?index=${i}`, { method: 'POST' }); },
   };
@@ -855,6 +856,7 @@
       if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
       document.getElementById('connDot').classList.add('on');
       document.getElementById('connLabel').textContent = 'online';
+      api.fetch('/api/playlist/status').then(d => { if (d.success) ui.playlist(d.data); });
       api.loadPlaylistTracks();
     };
     ws.onmessage = e => {
@@ -885,7 +887,7 @@
       else { dot.classList.add('off'); lbl.textContent = 'Donations off'; }
     }
     document.addEventListener('keydown', e => {
-      if (e.target.tagName === 'INPUT') return;
+      if (e.target.matches('input,textarea,select,[contenteditable]')) return;
       if (e.code === 'Space')      { e.preventDefault(); api.pp(); }
       else if (e.code === 'ArrowRight') { e.preventDefault(); api.cmd('next'); }
       else if (e.code === 'ArrowLeft')  { e.preventDefault(); api.cmd('previous'); }
