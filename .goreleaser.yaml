@@ -13,13 +13,13 @@ builds:
   - id: yt-player
     main: .
     binary: yt-player
-    
+
     env:
       - CGO_ENABLED=0
-    
+
     ldflags:
       - -s -w
-    
+
     flags:
       - -trimpath
 
@@ -42,15 +42,14 @@ builds:
     tags:
       - pure
 
-
 archives:
   - id: default
-    name_template: "yt-player_v1.2.1-5-gf4cdaba-dirty_{{.Os}}_{{.Arch}}"
-    
+    name_template: "yt-player_{{.Version}}_{{.Os}}_{{.Arch}}"
+
     format_overrides:
       - goos: windows
         formats: [ 'zip' ]
-    
+
     files:
       - LICENSE*
       - README*
@@ -62,11 +61,29 @@ checksum:
   algorithm: sha256
 
 snapshot:
-  version_template: "v1.2.2-next-next"
+  version_template: "{{ incpatch .Version }}-next"
 
 changelog:
   sort: asc
   use: github
+  groups:
+    - title: "New Features"
+      regexp: '^feat(\(.+\))?:'
+      order: 0
+    - title: "Bug Fixes"
+      regexp: '^fix(\(.+\))?:'
+      order: 1
+    - title: "UI"
+      regexp: '^ui(\(.+\))?:'
+      order: 2
+    - title: "Refactoring"
+      regexp: '^refactor(\(.+\))?:'
+      order: 3
+    - title: "Build & CI"
+      regexp: '^(build|ci)(\(.+\))?:'
+      order: 4
+    - title: "Other"
+      order: 99
   filters:
     exclude:
       - '^docs:'
@@ -79,11 +96,15 @@ release:
   github:
     owner: "Katrovsky"
     name: "yt-player-obs-donatty"
-  
+
   draft: false
   prerelease: auto
-  mode: append
-  
+  mode: replace
+
+  header: |
+    ## yt-player {{ .Tag }}
+
   footer: |
+    ---
     ## Installation
-    Download the appropriate archive for your platform from the assets below.
+    Download the archive for your platform below, extract, and run `yt-player` alongside OBS.
