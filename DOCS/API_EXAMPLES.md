@@ -194,8 +194,7 @@ curl -X POST "http://localhost:8093/api/playlist/set?url=https://www.youtube.com
     "shuffled": false,
     "playlist_id": "PLaeFYenjKCnMH3zUy-qt2wVRxQbxgYb-Z",
     "total_tracks": 50,
-    "current_index": 0,
-    "was_playing": false
+    "current_index": 0
   }
 }
 ```
@@ -217,8 +216,7 @@ curl -X POST http://localhost:8093/api/playlist/enable
     "shuffled": false,
     "playlist_id": "PLaeFYenjKCnMH3zUy-qt2wVRxQbxgYb-Z",
     "total_tracks": 50,
-    "current_index": 0,
-    "was_playing": true
+    "current_index": 0
   }
 }
 ```
@@ -240,8 +238,7 @@ curl -X POST http://localhost:8093/api/playlist/disable
     "shuffled": false,
     "playlist_id": "PLaeFYenjKCnMH3zUy-qt2wVRxQbxgYb-Z",
     "total_tracks": 50,
-    "current_index": 0,
-    "was_playing": false
+    "current_index": 0
   }
 }
 ```
@@ -263,8 +260,7 @@ curl -X POST http://localhost:8093/api/playlist/reload
     "shuffled": false,
     "playlist_id": "PLaeFYenjKCnMH3zUy-qt2wVRxQbxgYb-Z",
     "total_tracks": 50,
-    "current_index": 0,
-    "was_playing": false
+    "current_index": 0
   }
 }
 ```
@@ -330,8 +326,7 @@ curl -X POST http://localhost:8093/api/playlist/shuffle
     "shuffled": true,
     "playlist_id": "PLaeFYenjKCnMH3zUy-qt2wVRxQbxgYb-Z",
     "total_tracks": 50,
-    "current_index": 0,
-    "was_playing": false
+    "current_index": 0
   }
 }
 ```
@@ -459,40 +454,7 @@ ws.onclose = () => {
 }
 ```
 
-## Пример интеграции с внешними сервисами
-
-### Автоматическое добавление треков из плейлиста Spotify
-
-```python
-import requests
-import json
-
-def add_track_from_spotify(spotify_url, user_name):
-    # Получение ID видео YouTube из Spotify URL (требуется интеграция с YouTube Data API)
-    youtube_id = convert_spotify_to_youtube(spotify_url)
-    
-    if youtube_id:
-        # Добавление трека через API YouTube Player
-        response = requests.post(
-            f"http://localhost:8093/api/add-url",
-            params={
-                "url": f"https://www.youtube.com/watch?v={youtube_id}",
-                "user": user_name
-            }
-        )
-        
-        if response.json().get("success"):
-            print(f"Track added successfully: {youtube_id}")
-        else:
-            print(f"Failed to add track: {response.json().get('message')}")
-    else:
-        print("Failed to find YouTube video for Spotify track")
-
-def convert_spotify_to_youtube(spotify_url):
-    # Реализация поиска видео на YouTube по данным Spotify
-    # Требуется использование YouTube Data API
-    pass
-```
+## Пример интеграции
 
 ### Мониторинг статуса плеера для стриминга
 
@@ -522,3 +484,4 @@ function updateStreamInfo(status) {
     document.getElementById('playerState').textContent = status.state;
     document.getElementById('queueLength').textContent = status.queue_length;
 }
+```
