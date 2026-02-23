@@ -1,4 +1,8 @@
+# GoReleaser configuration
+# https://goreleaser.com
+
 version: 2
+
 project_name: yt-player
 
 before:
@@ -6,79 +10,80 @@ before:
     - go mod tidy
 
 builds:
-  - id: yt-player-linux
+  - id: yt-player
     main: .
     binary: yt-player
+    
     env:
       - CGO_ENABLED=0
+    
     ldflags:
-      - -s -w
-    flags:
+      - -s -w -X main.version={{.Version}}
+
+    gcflags:
       - -trimpath
+
     goos:
       - linux
+      - windows
+      - darwin
+
     goarch:
       - amd64
       - arm64
       - arm
-    goarm:
-      - 6
-      - 7
-  - id: yt-player-other
-    main: .
-    binary: yt-player
-    env:
-      - CGO_ENABLED=0
-    ldflags:
-      - -s -w
-    flags:
-      - -trimpath
-    goos:
-      - windows
-      - darwin
-    goarch:
-      - amd64
-      - arm64
+
+    ignore:
+      - goos: darwin
+        goarch: '386'
+      - goos: windows
+        goarch: arm
+
+    tags:
+      - pure
+
 
 archives:
-  - id: yt-player
-    ids:
-      - yt-player-linux
-      - yt-player-other
-    formats:
-      - tar.gz
+  - id: default
+    name_template: "yt-player_v1.2.1-5-gf4cdaba-dirty_{{.Os}}_{{.Arch}}"
+    
     format_overrides:
       - goos: windows
-        formats:
-          - zip
-    name_template: >-
-      {{ .ProjectName }}_
-      {{ .Version }}_
-      {{ title .Os }}_
-      {{- if eq .Arch "amd64" }}x86_64
-      {{- else if eq .Arch "arm" }}armv{{ .Arm }}
-      {{- else }}{{ .Arch }}{{ end }}
+        formats: [ 'zip' ]
+    
     files:
-      - README.md
       - LICENSE*
+      - README*
+      - CHANGELOG*
       - config.sample.json
 
 checksum:
   name_template: 'checksums.txt'
+  algorithm: sha256
+
+snapshot:
+  version_template: "v1.2.2-next-next"
 
 changelog:
   sort: asc
+  use: github
   filters:
     exclude:
       - '^docs:'
       - '^test:'
       - '^chore:'
-      - 'typo'
+      - Merge pull request
+      - Merge branch
 
 release:
   github:
-    owner: Katrovsky
-    name: yt-player-obs-donatty
+    owner: "Katrovsky"
+    name: "yt-player-obs-donatty"
+  
   draft: false
   prerelease: auto
-  name_template: "{{ .ProjectName }} v{{ .Version }}"
+  mode: append
+  
+  footer: |
+    ## Installation
+    Download the appropriate archive for your platform from the assets below.
