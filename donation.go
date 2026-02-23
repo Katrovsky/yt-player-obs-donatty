@@ -1,4 +1,4 @@
-package donation
+package main
 
 import (
 	"bufio"
@@ -11,15 +11,11 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"yt-player/internal/youtube"
 )
 
-const maxSeen = 500
+const maxSeenDonations = 500
 
-type AddTrackFunc func(vid, by string, paid bool) error
-
-type Monitor struct {
+type DonationMonitor struct {
 	widgetURL     string
 	minAmount     int
 	widgetID      string
@@ -28,16 +24,16 @@ type Monitor struct {
 	seenDonations map[string]time.Time
 	mu            sync.Mutex
 	backoff       time.Duration
-	addTrack      AddTrackFunc
+	addTrack      func(vid, by string, paid bool) error
 }
 
-type authResponse struct {
+type donationAuthResponse struct {
 	Response struct {
 		AccessToken string `json:"accessToken"`
 	} `json:"response"`
 }
 
-type sseEvent struct {
+type donationSSEEvent struct {
 	Action string `json:"action"`
 	Data   struct {
 		StreamEventType string `json:"streamEventType"`
@@ -52,35 +48,28 @@ type donationData struct {
 	Message     string `json:"message"`
 }
 
-func New(widgetURL string, minAmount int, addTrack AddTrackFunc) (*Monitor, error) {
-	m := &Monitor{
+func newDonationMonitor(widgetURL string, minAmount int, addTrack func(vid, by string, paid bool) error) (*DonationMonitor, error) {
+	m := &DonationMonitor{
 		widgetURL:     widgetURL,
 		minAmount:     minAmount,
 		seenDonations: make(map[string]time.Time),
 		backoff:       10 * time.Second,
 		addTrack:      addTrack,
 	}
-	if err := m.parseWidgetURL(); err != nil {
-		return nil, err
-	}
-	return m, nil
-}
-
-func (m *Monitor) parseWidgetURL() error {
-	u, err := url.Parse(m.widgetURL)
+	u, err := url.Parse(widgetURL)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	q := u.Query()
 	m.widgetID = q.Get("ref")
 	m.widgetToken = q.Get("token")
 	if m.widgetID == "" || m.widgetToken == "" {
-		return fmt.Errorf("missing ref or token in widget URL")
+		return nil, fmt.Errorf("missing ref or token in widget URL")
 	}
-	return nil
+	return m, nil
 }
 
-func (m *Monitor) Start() {
+func (m *DonationMonitor) start() {
 	log.Printf("Starting donation monitor (min: %d)", m.minAmount)
 	for {
 		if err := m.getAccessToken(); err != nil {
@@ -97,7 +86,7 @@ func (m *Monitor) Start() {
 	}
 }
 
-func (m *Monitor) getAccessToken() error {
+func (m *DonationMonitor) getAccessToken() error {
 	resp, err := http.Get(fmt.Sprintf("https://api.donatty.com/auth/tokens/%s", m.widgetToken))
 	if err != nil {
 		return err
@@ -106,7 +95,7 @@ func (m *Monitor) getAccessToken() error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("failed to get access token: %d", resp.StatusCode)
 	}
-	var ar authResponse
+	var ar donationAuthResponse
 	if err := json.NewDecoder(resp.Body).Decode(&ar); err != nil {
 		return err
 	}
@@ -115,9 +104,9 @@ func (m *Monitor) getAccessToken() error {
 	return nil
 }
 
-func (m *Monitor) connectSSE() error {
-	url := fmt.Sprintf("https://api.donatty.com/widgets/%s/sse?jwt=%s", m.widgetID, m.accessToken)
-	resp, err := http.Get(url)
+func (m *DonationMonitor) connectSSE() error {
+	u := fmt.Sprintf("https://api.donatty.com/widgets/%s/sse?jwt=%s", m.widgetID, m.accessToken)
+	resp, err := http.Get(u)
 	if err != nil {
 		return err
 	}
@@ -126,8 +115,7 @@ func (m *Monitor) connectSSE() error {
 		return fmt.Errorf("SSE connection failed: %d", resp.StatusCode)
 	}
 	log.Println("Connected to donation SSE stream")
-	m.resetBackoff()
-
+	m.backoff = 10 * time.Second
 	reader := bufio.NewReader(resp.Body)
 	for {
 		line, err := reader.ReadString('\n')
@@ -145,8 +133,8 @@ func (m *Monitor) connectSSE() error {
 	}
 }
 
-func (m *Monitor) processEvent(data string) {
-	var ev sseEvent
+func (m *DonationMonitor) processEvent(data string) {
+	var ev donationSSEEvent
 	if err := json.Unmarshal([]byte(data), &ev); err != nil {
 		return
 	}
@@ -169,12 +157,11 @@ func (m *Monitor) processEvent(data string) {
 		return
 	}
 	m.seenDonations[dd.RefID] = time.Now()
-	if len(m.seenDonations) > maxSeen {
+	if len(m.seenDonations) > maxSeenDonations {
 		m.evictOldest()
 	}
 	m.mu.Unlock()
-
-	vid := youtube.ExtractID(dd.Message)
+	vid := extractVideoID(dd.Message)
 	if vid == "" {
 		log.Printf("No YouTube link in donation from %s", dd.DisplayName)
 		return
@@ -187,7 +174,7 @@ func (m *Monitor) processEvent(data string) {
 	}()
 }
 
-func (m *Monitor) evictOldest() {
+func (m *DonationMonitor) evictOldest() {
 	var oldestKey string
 	var oldestTime time.Time
 	for k, t := range m.seenDonations {
@@ -201,15 +188,11 @@ func (m *Monitor) evictOldest() {
 	}
 }
 
-func (m *Monitor) increaseBackoff() {
+func (m *DonationMonitor) increaseBackoff() {
 	if m.backoff < 5*time.Minute {
 		m.backoff *= 2
 		if m.backoff > 5*time.Minute {
 			m.backoff = 5 * time.Minute
 		}
 	}
-}
-
-func (m *Monitor) resetBackoff() {
-	m.backoff = 10 * time.Second
 }

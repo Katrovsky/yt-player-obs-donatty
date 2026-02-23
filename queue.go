@@ -1,8 +1,6 @@
-package queue
+package main
 
-import (
-	"time"
-)
+import "time"
 
 type Track struct {
 	VideoID     string    `json:"video_id"`
@@ -21,11 +19,11 @@ type RingBuffer struct {
 	cap  int
 }
 
-func NewRingBuffer(capacity int) *RingBuffer {
+func newRingBuffer(capacity int) *RingBuffer {
 	return &RingBuffer{buf: make([]*Track, capacity), cap: capacity}
 }
 
-func (r *RingBuffer) Push(t *Track) {
+func (r *RingBuffer) push(t *Track) {
 	r.buf[r.head] = t
 	r.head = (r.head + 1) % r.cap
 	if r.size < r.cap {
@@ -33,7 +31,7 @@ func (r *RingBuffer) Push(t *Track) {
 	}
 }
 
-func (r *RingBuffer) Pop() *Track {
+func (r *RingBuffer) pop() *Track {
 	if r.size == 0 {
 		return nil
 	}
@@ -44,9 +42,9 @@ func (r *RingBuffer) Pop() *Track {
 	return t
 }
 
-func (r *RingBuffer) Len() int { return r.size }
+func (r *RingBuffer) len() int { return r.size }
 
-func (r *RingBuffer) Snapshot() []*Track {
+func (r *RingBuffer) snapshot() []*Track {
 	out := make([]*Track, r.size)
 	start := (r.head - r.size + r.cap) % r.cap
 	for i := 0; i < r.size; i++ {
@@ -55,19 +53,11 @@ func (r *RingBuffer) Snapshot() []*Track {
 	return out
 }
 
-type Priority struct {
+type PriorityQueue struct {
 	items []*Track
 }
 
-func (pq *Priority) Add(t *Track) {
-	pq.addLocked(t, false)
-}
-
-func (pq *Priority) AddFront(t *Track) {
-	pq.addLocked(t, true)
-}
-
-func (pq *Priority) addLocked(t *Track, front bool) {
+func (pq *PriorityQueue) add(t *Track, front bool) {
 	if t.IsPaid || front {
 		pos := 0
 		if !front {
@@ -84,7 +74,7 @@ func (pq *Priority) addLocked(t *Track, front bool) {
 	}
 }
 
-func (pq *Priority) Next() *Track {
+func (pq *PriorityQueue) next() *Track {
 	if len(pq.items) == 0 {
 		return nil
 	}
@@ -93,17 +83,15 @@ func (pq *Priority) Next() *Track {
 	return t
 }
 
-func (pq *Priority) Snapshot() []*Track {
+func (pq *PriorityQueue) snapshot() []*Track {
 	out := make([]*Track, len(pq.items))
 	copy(out, pq.items)
 	return out
 }
 
-func (pq *Priority) Len() int {
-	return len(pq.items)
-}
+func (pq *PriorityQueue) len() int { return len(pq.items) }
 
-func (pq *Priority) RemoveAt(i int) *Track {
+func (pq *PriorityQueue) removeAt(i int) *Track {
 	if i < 0 || i >= len(pq.items) {
 		return nil
 	}
@@ -112,6 +100,4 @@ func (pq *Priority) RemoveAt(i int) *Track {
 	return t
 }
 
-func (pq *Priority) Clear() {
-	pq.items = pq.items[:0]
-}
+func (pq *PriorityQueue) clear() { pq.items = pq.items[:0] }

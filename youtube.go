@@ -1,4 +1,4 @@
-package youtube
+package main
 
 import (
 	"encoding/json"
@@ -7,8 +7,6 @@ import (
 	"regexp"
 	"strconv"
 	"time"
-
-	"yt-player/internal/cache"
 )
 
 type VideoInfo struct {
@@ -18,14 +16,14 @@ type VideoInfo struct {
 	Embeddable bool
 }
 
-type Client struct {
+type YouTubeClient struct {
 	apiKey string
-	cache  *cache.Cache
+	cache  *Cache
 }
 
 var youtubeIDRegex = regexp.MustCompile(`(?:youtube\.com/watch\?v=|youtu\.be/)([a-zA-Z0-9_-]{11})`)
 
-func ExtractID(text string) string {
+func extractVideoID(text string) string {
 	if matches := youtubeIDRegex.FindStringSubmatch(text); len(matches) > 1 {
 		return matches[1]
 	}
@@ -38,25 +36,21 @@ func ExtractID(text string) string {
 	return ""
 }
 
-func NewClient(apiKey string, c *cache.Cache) *Client {
-	return &Client{apiKey: apiKey, cache: c}
+func newYouTubeClient(apiKey string, c *Cache) *YouTubeClient {
+	return &YouTubeClient{apiKey: apiKey, cache: c}
 }
 
-func (c *Client) APIKey() string { return c.apiKey }
-
-func (c *Client) GetVideoInfo(vid string) (VideoInfo, error) {
-	return c.GetVideoInfoWithClient(vid, &http.Client{Timeout: 20 * time.Second})
+func (c *YouTubeClient) getVideoInfo(vid string) (VideoInfo, error) {
+	return c.getVideoInfoWithClient(vid, &http.Client{Timeout: 20 * time.Second})
 }
 
-func (c *Client) GetVideoInfoWithClient(vid string, client *http.Client) (VideoInfo, error) {
-	if e, ok := c.cache.GetVideo(vid); ok {
+func (c *YouTubeClient) getVideoInfoWithClient(vid string, client *http.Client) (VideoInfo, error) {
+	if e, ok := c.cache.getVideo(vid); ok {
 		return VideoInfo{Title: e.Title, Duration: e.Duration, Views: e.Views, Embeddable: e.Embeddable}, nil
 	}
-
 	if c.apiKey == "" {
 		return VideoInfo{}, fmt.Errorf("YouTube API key not configured")
 	}
-
 	url := fmt.Sprintf(
 		"https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,statistics,status&id=%s&key=%s",
 		vid, c.apiKey,
@@ -66,23 +60,15 @@ func (c *Client) GetVideoInfoWithClient(vid string, client *http.Client) (VideoI
 		return VideoInfo{}, fmt.Errorf("failed to fetch video info: %w", err)
 	}
 	defer resp.Body.Close()
-
 	if resp.StatusCode != http.StatusOK {
 		return VideoInfo{}, fmt.Errorf("youtube API returned status: %d", resp.StatusCode)
 	}
-
 	var apiResp struct {
 		Items []struct {
-			Snippet struct {
-				Title string `json:"title"`
-			} `json:"snippet"`
-			ContentDetails struct {
-				Duration string `json:"duration"`
-			} `json:"contentDetails"`
-			Statistics struct {
-				ViewCount string `json:"viewCount"`
-			} `json:"statistics"`
-			Status struct {
+			Snippet        struct{ Title string `json:"title"` } `json:"snippet"`
+			ContentDetails struct{ Duration string `json:"duration"` } `json:"contentDetails"`
+			Statistics     struct{ ViewCount string `json:"viewCount"` } `json:"statistics"`
+			Status         struct {
 				Embeddable    bool   `json:"embeddable"`
 				PrivacyStatus string `json:"privacyStatus"`
 			} `json:"status"`
@@ -94,9 +80,8 @@ func (c *Client) GetVideoInfoWithClient(vid string, client *http.Client) (VideoI
 	if len(apiResp.Items) == 0 {
 		return VideoInfo{}, fmt.Errorf("video not found")
 	}
-
 	item := apiResp.Items[0]
-	dur, err := parseDuration(item.ContentDetails.Duration)
+	dur, err := parseISO8601Duration(item.ContentDetails.Duration)
 	if err != nil {
 		return VideoInfo{}, fmt.Errorf("failed to parse duration: %w", err)
 	}
@@ -104,14 +89,17 @@ func (c *Client) GetVideoInfoWithClient(vid string, client *http.Client) (VideoI
 	if item.Statistics.ViewCount != "" {
 		views, _ = strconv.Atoi(item.Statistics.ViewCount)
 	}
-	embeddable := item.Status.Embeddable && item.Status.PrivacyStatus == "public"
-
-	info := VideoInfo{Title: item.Snippet.Title, Duration: dur, Views: views, Embeddable: embeddable}
-	c.cache.SetVideo(vid, cache.VideoEntry{Title: info.Title, Duration: info.Duration, Views: info.Views, Embeddable: info.Embeddable})
+	info := VideoInfo{
+		Title:      item.Snippet.Title,
+		Duration:   dur,
+		Views:      views,
+		Embeddable: item.Status.Embeddable && item.Status.PrivacyStatus == "public",
+	}
+	c.cache.setVideo(vid, VideoEntry{Title: info.Title, Duration: info.Duration, Views: info.Views, Embeddable: info.Embeddable})
 	return info, nil
 }
 
-func parseDuration(iso string) (int, error) {
+func parseISO8601Duration(iso string) (int, error) {
 	re := regexp.MustCompile(`PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?`)
 	matches := re.FindStringSubmatch(iso)
 	if len(matches) == 0 {
