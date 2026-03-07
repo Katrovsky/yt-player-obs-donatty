@@ -1,111 +1,154 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>YouTube Player Overlay</title>
-<style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body {
-  background: transparent;
-  width: 100vw;
-  height: 100vh;
-  overflow: hidden;
-}
-#player-wrapper {
-  width: 100%;
-  height: 100%;
-  opacity: 0;
-  transition: opacity 0.3s ease;
-}
-#player-wrapper.visible { opacity: 1; }
-#player-wrapper.instant { transition: none; }
-#player { width: 100%; height: 100%; }
-</style>
-<script src="https://www.youtube.com/iframe_api"></script>
-</head>
-<body>
-<div id="player-wrapper"><div id="player"></div></div>
-<script>
-let player, ready = false, currentVideo = '', pendingState = null;
-let ws, reconnectTimer;
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>YouTube Player Overlay</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        background: transparent;
+        width: 100vw;
+        height: 100vh;
+        overflow: hidden;
+      }
+      #player-wrapper {
+        width: 100%;
+        height: 100%;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+      }
+      #player-wrapper.visible {
+        opacity: 1;
+      }
+      #player-wrapper.instant {
+        transition: none;
+      }
+      #player {
+        width: 100%;
+        height: 100%;
+      }
+      #click-blocker {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 10;
+      }
+    </style>
+    <script src="https://www.youtube.com/iframe_api"></script>
+  </head>
+  <body>
+    <div id="player-wrapper">
+      <div id="player"></div>
+      <div id="click-blocker"></div>
+    </div>
+    <script>
+      let player,
+        ready = false,
+        currentVideo = "",
+        pendingState = null;
+      let ws, reconnectTimer;
 
-function onYouTubeIframeAPIReady() {
-  player = new YT.Player('player', {
-    videoId: '',
-    host: 'https://www.youtube-nocookie.com',
-    playerVars: {
-      autoplay: 1,
-      controls: 0,
-      rel: 0,
-      iv_load_policy: 3,
-      disablekb: 1,
-      fs: 0,
-      modestbranding: 1,
-      playsinline: 1,
-    },
-    events: {
-      onReady: () => {
-        ready = true;
-        if (pendingState) { applyState(pendingState); pendingState = null; }
-      },
-      onStateChange: e => {
-        if (e.data === YT.PlayerState.ENDED) {
-          fetch('/api/next', { method: 'POST' }).catch(() => {});
+      // Connect WebSocket immediately — don't wait for YouTube player to initialize
+      connectWebSocket();
+
+      function onYouTubeIframeAPIReady() {
+        player = new YT.Player("player", {
+          videoId: "",
+          playerVars: {
+            autoplay: 1,
+            controls: 0,
+            rel: 0,
+            iv_load_policy: 3,
+            disablekb: 1,
+            fs: 0,
+            modestbranding: 1,
+            playsinline: 1,
+          },
+          events: {
+            onReady: () => {
+              ready = true;
+              if (pendingState) {
+                applyState(pendingState);
+                pendingState = null;
+              }
+            },
+            onStateChange: (e) => {
+              if (e.data === YT.PlayerState.ENDED) {
+                fetch("/api/next", { method: "POST" }).catch(() => {});
+              }
+            },
+            onError: () => {
+              setTimeout(
+                () => fetch("/api/next", { method: "POST" }).catch(() => {}),
+                2000,
+              );
+            },
+          },
+        });
+      }
+
+      function applyState(d) {
+        const wrapper = document.getElementById("player-wrapper");
+        const t = d.current;
+        const a = d.action;
+
+        if (!t || a === "stopped") {
+          player.stopVideo();
+          wrapper.classList.add("instant");
+          wrapper.classList.remove("visible");
+          currentVideo = "";
+          return;
         }
-      },
-      onError: () => {
-        setTimeout(() => fetch('/api/next', { method: 'POST' }).catch(() => {}), 2000);
-      },
-    },
-  });
-  connectWebSocket();
-}
 
-function applyState(d) {
-  const wrapper = document.getElementById('player-wrapper');
-  const t = d.current;
-  const a = d.action;
+        if (a === "paused") {
+          player.pauseVideo();
+          wrapper.classList.add("instant");
+          wrapper.classList.remove("visible");
+          return;
+        }
 
-  if (!t || a === 'stopped') {
-    player.stopVideo();
-    wrapper.classList.add('instant');
-    wrapper.classList.remove('visible');
-    currentVideo = '';
-    return;
-  }
+        if (a === "playing") {
+          if (t.video_id !== currentVideo) {
+            currentVideo = t.video_id;
+            player.loadVideoById({ videoId: t.video_id, startSeconds: 0 });
+          } else {
+            player.playVideo();
+          }
+          wrapper.classList.remove("instant");
+          wrapper.classList.add("visible");
+        }
+      }
 
-  if (a === 'paused') {
-    player.pauseVideo();
-    wrapper.classList.add('instant');
-    wrapper.classList.remove('visible');
-    return;
-  }
+      function updateUI(d) {
+        if (!ready) {
+          pendingState = d;
+          return;
+        }
+        applyState(d);
+      }
 
-  if (a === 'playing') {
-    if (t.video_id !== currentVideo) {
-      currentVideo = t.video_id;
-      player.loadVideoById({ videoId: t.video_id });
-    } else {
-      player.playVideo();
-    }
-    wrapper.classList.remove('instant');
-    wrapper.classList.add('visible');
-  }
-}
-
-function updateUI(d) {
-  if (!ready) { pendingState = d; return; }
-  applyState(d);
-}
-
-function connectWebSocket() {
-  ws = new WebSocket('ws://' + location.host + '/ws');
-  ws.onopen = () => { clearTimeout(reconnectTimer); };
-  ws.onmessage = e => { try { updateUI(JSON.parse(e.data)); } catch (_) {} };
-  ws.onclose = () => { reconnectTimer = setTimeout(connectWebSocket, 3000); };
-  ws.onerror = () => {};
-}
-</script>
-</body>
+      function connectWebSocket() {
+        ws = new WebSocket("ws://" + location.host + "/ws");
+        ws.onopen = () => {
+          clearTimeout(reconnectTimer);
+        };
+        ws.onmessage = (e) => {
+          try {
+            updateUI(JSON.parse(e.data));
+          } catch (_) {}
+        };
+        ws.onclose = () => {
+          reconnectTimer = setTimeout(connectWebSocket, 3000);
+        };
+        ws.onerror = () => {};
+      }
+    </script>
+  </body>
 </html>
