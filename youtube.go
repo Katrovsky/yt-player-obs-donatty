@@ -46,6 +46,9 @@ func (c *YouTubeClient) getVideoInfo(vid string) (VideoInfo, error) {
 
 func (c *YouTubeClient) getVideoInfoWithClient(vid string, client *http.Client) (VideoInfo, error) {
 	if e, ok := c.cache.getVideo(vid); ok {
+		if e.CategoryId != "10" {
+			return VideoInfo{}, fmt.Errorf("only music videos are allowed")
+		}
 		return VideoInfo{Title: e.Title, Duration: e.Duration, Views: e.Views, Embeddable: e.Embeddable}, nil
 	}
 	if c.apiKey == "" {
@@ -65,10 +68,17 @@ func (c *YouTubeClient) getVideoInfoWithClient(vid string, client *http.Client) 
 	}
 	var apiResp struct {
 		Items []struct {
-			Snippet        struct{ Title string `json:"title"` } `json:"snippet"`
-			ContentDetails struct{ Duration string `json:"duration"` } `json:"contentDetails"`
-			Statistics     struct{ ViewCount string `json:"viewCount"` } `json:"statistics"`
-			Status         struct {
+			Snippet struct {
+				Title      string `json:"title"`
+				CategoryId string `json:"categoryId"`
+			} `json:"snippet"`
+			ContentDetails struct {
+				Duration string `json:"duration"`
+			} `json:"contentDetails"`
+			Statistics struct {
+				ViewCount string `json:"viewCount"`
+			} `json:"statistics"`
+			Status struct {
 				Embeddable    bool   `json:"embeddable"`
 				PrivacyStatus string `json:"privacyStatus"`
 			} `json:"status"`
@@ -89,13 +99,22 @@ func (c *YouTubeClient) getVideoInfoWithClient(vid string, client *http.Client) 
 	if item.Statistics.ViewCount != "" {
 		views, _ = strconv.Atoi(item.Statistics.ViewCount)
 	}
+	if item.Snippet.CategoryId != "10" {
+		return VideoInfo{}, fmt.Errorf("only music videos are allowed")
+	}
 	info := VideoInfo{
 		Title:      item.Snippet.Title,
 		Duration:   dur,
 		Views:      views,
 		Embeddable: item.Status.Embeddable && item.Status.PrivacyStatus == "public",
 	}
-	c.cache.setVideo(vid, VideoEntry{Title: info.Title, Duration: info.Duration, Views: info.Views, Embeddable: info.Embeddable})
+	c.cache.setVideo(vid, VideoEntry{
+		Title:      info.Title,
+		Duration:   info.Duration,
+		Views:      info.Views,
+		Embeddable: info.Embeddable,
+		CategoryId: item.Snippet.CategoryId,
+	})
 	return info, nil
 }
 
