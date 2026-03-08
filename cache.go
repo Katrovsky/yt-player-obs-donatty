@@ -3,10 +3,16 @@ package main
 import (
 	"bytes"
 	"encoding/gob"
-	"fmt"
+	"log"
+	"sort"
 	"time"
 
 	bolt "go.etcd.io/bbolt"
+)
+
+const (
+	maxVideos    = 50000
+	maxPlaylists = 500
 )
 
 var (
@@ -19,6 +25,7 @@ type VideoEntry struct {
 	Duration   int
 	Views      int
 	Embeddable bool
+	CategoryId string
 	CachedAt   time.Time
 }
 
@@ -33,14 +40,14 @@ type PlaylistTrack struct {
 	DurationSec int
 	Views       int
 	Embeddable  bool
+	CategoryId  string
 }
 
 type Cache struct {
-	db  *bolt.DB
-	ttl time.Duration
+	db *bolt.DB
 }
 
-func openCache(path string, ttl time.Duration) (*Cache, error) {
+func openCache(path string, _ time.Duration) (*Cache, error) {
 	db, err := bolt.Open(path, 0600, &bolt.Options{Timeout: 2 * time.Second})
 	if err != nil {
 		return nil, err
@@ -56,7 +63,7 @@ func openCache(path string, ttl time.Duration) (*Cache, error) {
 		db.Close()
 		return nil, err
 	}
-	return &Cache{db: db, ttl: ttl}, nil
+	return &Cache{db: db}, nil
 }
 
 func (c *Cache) close() { c.db.Close() }
@@ -78,14 +85,11 @@ func (c *Cache) getVideo(id string) (VideoEntry, bool) {
 	_ = c.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(bucketVideos).Get([]byte(id))
 		if b == nil {
-			return fmt.Errorf("miss")
+			return nil
 		}
 		return gobDecode(b, &e)
 	})
 	if e.Title == "" {
-		return VideoEntry{}, false
-	}
-	if c.ttl > 0 && time.Since(e.CachedAt) > c.ttl {
 		return VideoEntry{}, false
 	}
 	return e, true
@@ -98,7 +102,14 @@ func (c *Cache) setVideo(id string, e VideoEntry) {
 		return
 	}
 	_ = c.db.Update(func(tx *bolt.Tx) error {
-		return tx.Bucket(bucketVideos).Put([]byte(id), data)
+		bkt := tx.Bucket(bucketVideos)
+		count := bkt.Stats().KeyN
+		if count >= maxVideos {
+			if err := evictOldestFromBucket(bkt, count-maxVideos+1); err != nil {
+				log.Printf("Video cache eviction error: %v", err)
+			}
+		}
+		return bkt.Put([]byte(id), data)
 	})
 }
 
@@ -107,14 +118,11 @@ func (c *Cache) getPlaylist(id string) (PlaylistEntry, bool) {
 	_ = c.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(bucketPlaylist).Get([]byte(id))
 		if b == nil {
-			return fmt.Errorf("miss")
+			return nil
 		}
 		return gobDecode(b, &e)
 	})
 	if len(e.Tracks) == 0 {
-		return PlaylistEntry{}, false
-	}
-	if c.ttl > 0 && time.Since(e.CachedAt) > c.ttl {
 		return PlaylistEntry{}, false
 	}
 	return e, true
@@ -127,7 +135,14 @@ func (c *Cache) setPlaylist(id string, e PlaylistEntry) {
 		return
 	}
 	_ = c.db.Update(func(tx *bolt.Tx) error {
-		return tx.Bucket(bucketPlaylist).Put([]byte(id), data)
+		bkt := tx.Bucket(bucketPlaylist)
+		count := bkt.Stats().KeyN
+		if count >= maxPlaylists {
+			if err := evictOldestFromBucket(bkt, count-maxPlaylists+1); err != nil {
+				log.Printf("Playlist cache eviction error: %v", err)
+			}
+		}
+		return bkt.Put([]byte(id), data)
 	})
 }
 
@@ -135,4 +150,38 @@ func (c *Cache) deletePlaylist(id string) {
 	_ = c.db.Update(func(tx *bolt.Tx) error {
 		return tx.Bucket(bucketPlaylist).Delete([]byte(id))
 	})
+}
+
+func evictOldestFromBucket(bkt *bolt.Bucket, n int) error {
+	type kv struct {
+		key      []byte
+		cachedAt time.Time
+	}
+	var entries []kv
+	_ = bkt.ForEach(func(k, v []byte) error {
+		var cachedAt time.Time
+		var ve VideoEntry
+		if err := gobDecode(v, &ve); err == nil && !ve.CachedAt.IsZero() {
+			cachedAt = ve.CachedAt
+		} else {
+			var pe PlaylistEntry
+			if err := gobDecode(v, &pe); err == nil && !pe.CachedAt.IsZero() {
+				cachedAt = pe.CachedAt
+			}
+		}
+		entries = append(entries, kv{key: append([]byte{}, k...), cachedAt: cachedAt})
+		return nil
+	})
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].cachedAt.Before(entries[j].cachedAt)
+	})
+	if n > len(entries) {
+		n = len(entries)
+	}
+	for i := 0; i < n; i++ {
+		if err := bkt.Delete(entries[i].key); err != nil {
+			return err
+		}
+	}
+	return nil
 }
