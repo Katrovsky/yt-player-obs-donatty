@@ -102,6 +102,7 @@ func (m *Playlist) fetchAndCache(pid string) error {
 		cTracks = append(cTracks, PlaylistTrack{
 			VideoID: vid, Title: info.Title,
 			DurationSec: info.Duration, Views: info.Views, Embeddable: true,
+			CategoryId: "10",
 		})
 		ok++
 	}
