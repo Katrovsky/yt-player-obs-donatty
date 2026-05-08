@@ -37,6 +37,10 @@ builds:
       - "6"
       - "7"
 
+    goamd64:
+      - "v2"
+      - "v3"
+
     ignore:
       - goos: darwin
         goarch: "386"
@@ -48,7 +52,7 @@ builds:
 
 archives:
   - id: default
-    name_template: "yt-player_{{.Version}}_{{.Os}}_{{.Arch}}{{if .Arm}}v{{.Arm}}{{end}}"
+    name_template: "yt-player_{{.Version}}_{{.Os}}_{{.Arch}}{{if .Arm}}v{{.Arm}}{{end}}{{if .Amd64}}_{{.Amd64}}{{end}}"
 
     format_overrides:
       - goos: windows
