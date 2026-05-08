@@ -33,9 +33,13 @@ builds:
       - arm64
       - arm
 
+    goarm:
+      - "6"
+      - "7"
+
     ignore:
       - goos: darwin
-        goarch: '386'
+        goarch: "386"
       - goos: windows
         goarch: arm
 
@@ -44,11 +48,11 @@ builds:
 
 archives:
   - id: default
-    name_template: "yt-player_{{.Version}}_{{.Os}}_{{.Arch}}"
+    name_template: "yt-player_{{.Version}}_{{.Os}}_{{.Arch}}{{if .Arm}}v{{.Arm}}{{end}}"
 
     format_overrides:
       - goos: windows
-        formats: [ 'zip' ]
+        formats: ["zip"]
 
     files:
       - LICENSE*
@@ -57,7 +61,7 @@ archives:
       - config.sample.json
 
 checksum:
-  name_template: 'checksums.txt'
+  name_template: "checksums.txt"
   algorithm: sha256
 
 snapshot:
@@ -86,9 +90,9 @@ changelog:
       order: 99
   filters:
     exclude:
-      - '^docs:'
-      - '^test:'
-      - '^chore:'
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
       - Merge pull request
       - Merge branch
 
