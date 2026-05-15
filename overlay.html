@@ -1,154 +1,389 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>YouTube Player Overlay</title>
-    <style>
-      * {
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>YouTube Player Overlay</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400&display=swap"
+    rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: transparent;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      font-family: 'DM Sans', sans-serif;
+    }
+
+    /* ── Video mode ── */
+    #video-wrapper {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+
+    #video-wrapper.visible {
+      opacity: 1;
+    }
+
+    #video-wrapper.instant {
+      transition: none;
+    }
+
+    #player {
+      width: 100%;
+      height: 100%;
+    }
+
+    #click-blocker {
+      position: absolute;
+      inset: 0;
+      z-index: 10;
+    }
+
+    /* ── Now-playing mode ── */
+    #np-wrapper {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: flex-start;
+      justify-content: flex-start;
+      pointer-events: none;
+    }
+
+    .np-card {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      background: rgba(10, 10, 13, 0.82);
+      backdrop-filter: blur(12px) saturate(1.4);
+      -webkit-backdrop-filter: blur(12px) saturate(1.4);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 10px;
+      overflow: hidden;
+      width: 100%;
+      opacity: 0;
+      transform: translateY(-6px);
+      transition: opacity 0.35s ease, transform 0.35s ease;
+    }
+
+    .np-card.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .np-thumb {
+      width: 64px;
+      height: 64px;
+      object-fit: cover;
+      flex-shrink: 0;
+      display: block;
+    }
+
+    .np-thumb-placeholder {
+      width: 64px;
+      height: 64px;
+      background: rgba(255, 255, 255, 0.04);
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .np-body {
+      flex: 1;
+      min-width: 0;
+      padding: 0 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .np-label {
+      font-size: 0.6rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.35);
+    }
+
+    .np-title-clip {
+      overflow: hidden;
+      white-space: nowrap;
+      position: relative;
+    }
+
+    /* fade edges */
+    .np-title-clip::after {
+      content: '';
+      position: absolute;
+      right: 0;
+      top: 0;
+      bottom: 0;
+      width: 28px;
+      background: linear-gradient(to right, transparent, rgba(10, 10, 13, 0.82));
+      pointer-events: none;
+    }
+
+    .np-title {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: #fff;
+      white-space: nowrap;
+      display: inline-block;
+    }
+
+    .np-title.marquee {
+      animation: marquee var(--marquee-duration, 12s) linear infinite;
+    }
+
+    @keyframes marquee {
+      0% {
+        transform: translateX(0);
       }
-      body {
-        background: transparent;
-        width: 100vw;
-        height: 100vh;
-        overflow: hidden;
+
+      30% {
+        transform: translateX(0);
       }
-      #player-wrapper {
-        width: 100%;
-        height: 100%;
-        opacity: 0;
-        transition: opacity 0.3s ease;
+
+      /* пауза в начале */
+      70% {
+        transform: translateX(var(--marquee-offset, -15%));
       }
-      #player-wrapper.visible {
-        opacity: 1;
+
+      100% {
+        transform: translateX(var(--marquee-offset, -15%));
       }
-      #player-wrapper.instant {
-        transition: none;
-      }
-      #player {
-        width: 100%;
-        height: 100%;
-      }
-      #click-blocker {
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        z-index: 10;
-      }
-    </style>
-    <script src="https://www.youtube.com/iframe_api"></script>
-  </head>
-  <body>
-    <div id="player-wrapper">
-      <div id="player"></div>
-      <div id="click-blocker"></div>
+
+      /* пауза в конце */
+    }
+
+    .np-by {
+      font-size: 0.72rem;
+      color: rgba(255, 255, 255, 0.45);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .np-badge {
+      font-size: 0.55rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 2px 6px;
+      border-radius: 3px;
+      background: rgba(240, 180, 41, 0.2);
+      color: #f0b429;
+      flex-shrink: 0;
+      margin-right: 14px;
+      align-self: center;
+    }
+  </style>
+  <script src="https://www.youtube.com/iframe_api"></script>
+</head>
+
+<body>
+
+  <div id="video-wrapper">
+    <div id="player"></div>
+    <div id="click-blocker"></div>
+  </div>
+
+  <div id="np-wrapper">
+    <div class="np-card" id="npCard">
+      <div class="np-thumb-placeholder" id="npPlaceholder">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+          <path d="M9 18V6l11-2v12" stroke="rgba(255,255,255,0.2)" stroke-width="1.5" stroke-linecap="round" />
+          <circle cx="6" cy="18" r="3" stroke="rgba(255,255,255,0.2)" stroke-width="1.5" />
+          <circle cx="17" cy="16" r="3" stroke="rgba(255,255,255,0.2)" stroke-width="1.5" />
+        </svg>
+      </div>
+      <img id="npThumb" class="np-thumb" src="" alt="" style="display:none" />
+      <div class="np-body">
+        <div class="np-label">Now playing</div>
+        <div class="np-title-clip" id="npTitleClip">
+          <span class="np-title" id="npTitle">—</span>
+        </div>
+        <div class="np-by" id="npBy">—</div>
+      </div>
+      <div class="np-badge" id="npBadge" style="display:none">paid</div>
     </div>
-    <script>
-      let player,
-        ready = false,
-        currentVideo = "",
-        pendingState = null;
-      let ws, reconnectTimer;
+  </div>
 
-      // Connect WebSocket immediately — don't wait for YouTube player to initialize
-      connectWebSocket();
+  <script>
+    const STORAGE_KEY = 'yt-player-overlay-mode';
 
-      function onYouTubeIframeAPIReady() {
-        player = new YT.Player("player", {
-          videoId: "",
-          playerVars: {
-            autoplay: 1,
-            controls: 0,
-            rel: 0,
-            iv_load_policy: 3,
-            disablekb: 1,
-            fs: 0,
-            modestbranding: 1,
-            playsinline: 1,
+    let player, ytReady = false, pendingState = null;
+    let ws, reconnectTimer;
+    let currentMode = localStorage.getItem(STORAGE_KEY) || 'nowplaying';
+    let currentVideoId = '';
+    let marqueeTimer = null;
+
+    function applyMode() {
+      const vw = document.getElementById('video-wrapper');
+      const nw = document.getElementById('np-wrapper');
+      if (currentMode === 'video') {
+        vw.style.display = 'block';
+        nw.style.display = 'none';
+      } else {
+        vw.style.display = 'none';
+        nw.style.display = 'flex';
+      }
+    }
+
+    window.addEventListener('storage', e => {
+      if (e.key === STORAGE_KEY) {
+        currentMode = e.newValue || 'nowplaying';
+        applyMode();
+      }
+    });
+
+    applyMode();
+    connectWebSocket();
+
+    // ── YouTube IFrame API ──────────────────────────────────────────────────────
+
+    function onYouTubeIframeAPIReady() {
+      player = new YT.Player('player', {
+        videoId: '',
+        playerVars: {
+          autoplay: 1, controls: 0, rel: 0,
+          iv_load_policy: 3, disablekb: 1, fs: 0,
+          modestbranding: 1, playsinline: 1,
+        },
+        events: {
+          onReady: () => {
+            ytReady = true;
+            if (pendingState) { applyState(pendingState); pendingState = null; }
           },
-          events: {
-            onReady: () => {
-              ready = true;
-              if (pendingState) {
-                applyState(pendingState);
-                pendingState = null;
-              }
-            },
-            onStateChange: (e) => {
-              if (e.data === YT.PlayerState.ENDED) {
-                fetch("/api/next", { method: "POST" }).catch(() => {});
-              }
-            },
-            onError: () => {
-              setTimeout(
-                () => fetch("/api/next", { method: "POST" }).catch(() => {}),
-                2000,
-              );
-            },
+          onStateChange: e => {
+            if (e.data === YT.PlayerState.ENDED) {
+              fetch('/api/next', { method: 'POST' }).catch(() => { });
+            }
           },
-        });
+          onError: () => {
+            setTimeout(() => fetch('/api/next', { method: 'POST' }).catch(() => { }), 2000);
+          },
+        },
+      });
+    }
+
+    // ── State application ───────────────────────────────────────────────────────
+
+    function applyState(d) {
+      const t = d.current;
+      const a = d.action;
+
+      updateNowPlaying(t, a);
+      updateVideo(t, a);
+    }
+
+    function updateVideo(t, a) {
+      if (!ytReady) return;
+      const vw = document.getElementById('video-wrapper');
+      if (!t || a === 'stopped') {
+        player.stopVideo();
+        vw.classList.add('instant');
+        vw.classList.remove('visible');
+        currentVideoId = '';
+        return;
+      }
+      if (a === 'paused') {
+        player.pauseVideo();
+        vw.classList.add('instant');
+        vw.classList.remove('visible');
+        return;
+      }
+      if (a === 'playing') {
+        if (t.video_id !== currentVideoId) {
+          currentVideoId = t.video_id;
+          player.loadVideoById({ videoId: t.video_id, startSeconds: 0 });
+        } else {
+          player.playVideo();
+        }
+        vw.classList.remove('instant');
+        vw.classList.add('visible');
+      }
+    }
+
+    function updateNowPlaying(t, a) {
+      const card = document.getElementById('npCard');
+      const thumb = document.getElementById('npThumb');
+      const ph = document.getElementById('npPlaceholder');
+      const title = document.getElementById('npTitle');
+      const clip = document.getElementById('npTitleClip');
+      const byEl = document.getElementById('npBy');
+      const badge = document.getElementById('npBadge');
+
+      const visible = t && a === 'playing';
+
+      if (!visible) {
+        card.classList.remove('visible');
+        clearMarquee(title);
+        return;
       }
 
-      function applyState(d) {
-        const wrapper = document.getElementById("player-wrapper");
-        const t = d.current;
-        const a = d.action;
+      thumb.src = `https://img.youtube.com/vi/${t.video_id}/mqdefault.jpg`;
+      thumb.style.display = 'block';
+      ph.style.display = 'none';
+      thumb.onerror = () => { thumb.style.display = 'none'; ph.style.display = 'flex'; };
 
-        if (!t || a === "stopped") {
-          player.stopVideo();
-          wrapper.classList.add("instant");
-          wrapper.classList.remove("visible");
-          currentVideo = "";
-          return;
-        }
+      title.textContent = t.title || '—';
+      title.classList.remove('marquee');
+      title.style.removeProperty('--marquee-duration');
+      title.style.removeProperty('--marquee-offset');
+      clearMarquee(title);
 
-        if (a === "paused") {
-          player.pauseVideo();
-          wrapper.classList.add("instant");
-          wrapper.classList.remove("visible");
-          return;
-        }
+      byEl.textContent = t.added_by || 'Unknown';
+      badge.style.display = t.is_paid ? 'block' : 'none';
 
-        if (a === "playing") {
-          if (t.video_id !== currentVideo) {
-            currentVideo = t.video_id;
-            player.loadVideoById({ videoId: t.video_id, startSeconds: 0 });
-          } else {
-            player.playVideo();
-          }
-          wrapper.classList.remove("instant");
-          wrapper.classList.add("visible");
-        }
-      }
+      card.classList.add('visible');
 
-      function updateUI(d) {
-        if (!ready) {
-          pendingState = d;
-          return;
-        }
-        applyState(d);
-      }
+      // Schedule marquee check after paint so offsetWidth is accurate
+      marqueeTimer = setTimeout(() => scheduleMarquee(title, clip), 120);
+    }
 
-      function connectWebSocket() {
-        ws = new WebSocket("ws://" + location.host + "/ws");
-        ws.onopen = () => {
-          clearTimeout(reconnectTimer);
-        };
-        ws.onmessage = (e) => {
-          try {
-            updateUI(JSON.parse(e.data));
-          } catch (_) {}
-        };
-        ws.onclose = () => {
-          reconnectTimer = setTimeout(connectWebSocket, 3000);
-        };
-        ws.onerror = () => {};
-      }
-    </script>
-  </body>
+    function scheduleMarquee(el, clip) {
+      const overflow = el.scrollWidth - clip.clientWidth;
+      if (overflow <= 4) return;
+      const px = overflow + 32;
+      const dur = Math.max(6, Math.round(px / 10)); // 10px/s speed with minimum of 6s
+      el.style.setProperty('--marquee-offset', `-${px}px`);
+      el.style.setProperty('--marquee-duration', `${dur}s`);
+      el.classList.add('marquee');
+    }
+
+    function clearMarquee(el) {
+      if (marqueeTimer) { clearTimeout(marqueeTimer); marqueeTimer = null; }
+      el.classList.remove('marquee');
+      el.style.removeProperty('--marquee-offset');
+      el.style.removeProperty('--marquee-duration');
+    }
+
+    // ── WebSocket ───────────────────────────────────────────────────────────────
+
+    function updateUI(d) {
+      if (!ytReady) { pendingState = d; }
+      applyState(d);
+    }
+
+    function connectWebSocket() {
+      ws = new WebSocket('ws://' + location.host + '/ws');
+      ws.onopen = () => clearTimeout(reconnectTimer);
+      ws.onmessage = e => { try { updateUI(JSON.parse(e.data)); } catch (_) { } };
+      ws.onclose = () => { reconnectTimer = setTimeout(connectWebSocket, 3000); };
+      ws.onerror = () => { };
+    }
+  </script>
+</body>
+
 </html>
