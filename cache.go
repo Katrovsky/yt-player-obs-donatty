@@ -11,8 +11,11 @@ import (
 )
 
 const (
-	maxVideos    = 50000
-	maxPlaylists = 500
+	maxVideos       = 50000
+	maxPlaylists    = 500
+	videoTTL        = 7 * 24 * time.Hour
+	videoTTLBlocked = 24 * time.Hour
+	playlistTTL     = 7 * 24 * time.Hour
 )
 
 var (
@@ -27,6 +30,7 @@ type VideoEntry struct {
 	Embeddable bool
 	CategoryId string
 	CachedAt   time.Time
+	TTL        time.Duration
 }
 
 type PlaylistEntry struct {
@@ -92,6 +96,13 @@ func (c *Cache) getVideo(id string) (VideoEntry, bool) {
 	if e.Title == "" {
 		return VideoEntry{}, false
 	}
+	ttl := e.TTL
+	if ttl == 0 {
+		ttl = videoTTL
+	}
+	if time.Since(e.CachedAt) > ttl {
+		return VideoEntry{}, false
+	}
 	return e, true
 }
 
@@ -103,9 +114,8 @@ func (c *Cache) setVideo(id string, e VideoEntry) {
 	}
 	_ = c.db.Update(func(tx *bolt.Tx) error {
 		bkt := tx.Bucket(bucketVideos)
-		count := bkt.Stats().KeyN
-		if count >= maxVideos {
-			if err := evictOldestFromBucket(bkt, count-maxVideos+1); err != nil {
+		if bkt.Stats().KeyN >= maxVideos {
+			if err := evictOldestFromBucket(bkt, bkt.Stats().KeyN-maxVideos+1); err != nil {
 				log.Printf("Video cache eviction error: %v", err)
 			}
 		}
@@ -125,6 +135,9 @@ func (c *Cache) getPlaylist(id string) (PlaylistEntry, bool) {
 	if len(e.Tracks) == 0 {
 		return PlaylistEntry{}, false
 	}
+	if time.Since(e.CachedAt) > playlistTTL {
+		return PlaylistEntry{}, false
+	}
 	return e, true
 }
 
@@ -136,9 +149,8 @@ func (c *Cache) setPlaylist(id string, e PlaylistEntry) {
 	}
 	_ = c.db.Update(func(tx *bolt.Tx) error {
 		bkt := tx.Bucket(bucketPlaylist)
-		count := bkt.Stats().KeyN
-		if count >= maxPlaylists {
-			if err := evictOldestFromBucket(bkt, count-maxPlaylists+1); err != nil {
+		if bkt.Stats().KeyN >= maxPlaylists {
+			if err := evictOldestFromBucket(bkt, bkt.Stats().KeyN-maxPlaylists+1); err != nil {
 				log.Printf("Playlist cache eviction error: %v", err)
 			}
 		}

@@ -12,92 +12,77 @@ type Track struct {
 	IsPaid      bool      `json:"is_paid"`
 }
 
-type RingBuffer struct {
-	buf  []*Track
-	head int
-	size int
-	cap  int
+type Queue struct {
+	items  []*Track
+	cursor int
 }
 
-func newRingBuffer(capacity int) *RingBuffer {
-	return &RingBuffer{buf: make([]*Track, capacity), cap: capacity}
-}
-
-func (r *RingBuffer) push(t *Track) {
-	r.buf[r.head] = t
-	r.head = (r.head + 1) % r.cap
-	if r.size < r.cap {
-		r.size++
-	}
-}
-
-func (r *RingBuffer) pop() *Track {
-	if r.size == 0 {
+func (q *Queue) current() *Track {
+	if q.cursor < 0 || q.cursor >= len(q.items) {
 		return nil
 	}
-	r.size--
-	idx := (r.head - 1 - r.size%r.cap + r.cap) % r.cap
-	t := r.buf[idx]
-	r.buf[idx] = nil
-	return t
+	return q.items[q.cursor]
 }
 
-func (r *RingBuffer) len() int { return r.size }
-
-func (r *RingBuffer) snapshot() []*Track {
-	out := make([]*Track, r.size)
-	start := (r.head - r.size + r.cap) % r.cap
-	for i := 0; i < r.size; i++ {
-		out[i] = r.buf[(start+i)%r.cap]
-	}
-	return out
-}
-
-type PriorityQueue struct {
-	items []*Track
-}
-
-func (pq *PriorityQueue) add(t *Track, front bool) {
-	if t.IsPaid || front {
-		pos := 0
-		if !front {
-			for i, tr := range pq.items {
-				if !tr.IsPaid {
-					break
-				}
-				pos = i + 1
-			}
+func (q *Queue) add(t *Track) {
+	if t.IsPaid {
+		pos := min(q.cursor+1, len(q.items))
+		for pos < len(q.items) && q.items[pos].IsPaid {
+			pos++
 		}
-		pq.items = append(pq.items[:pos], append([]*Track{t}, pq.items[pos:]...)...)
+		q.items = append(q.items[:pos], append([]*Track{t}, q.items[pos:]...)...)
 	} else {
-		pq.items = append(pq.items, t)
+		q.items = append(q.items, t)
 	}
 }
 
-func (pq *PriorityQueue) next() *Track {
-	if len(pq.items) == 0 {
+func (q *Queue) advance() *Track {
+	if q.cursor+1 >= len(q.items) {
 		return nil
 	}
-	t := pq.items[0]
-	pq.items = pq.items[1:]
+	q.cursor++
+	return q.items[q.cursor]
+}
+
+func (q *Queue) goBack() *Track {
+	if q.cursor <= 0 {
+		return nil
+	}
+	q.cursor--
+	return q.items[q.cursor]
+}
+
+func (q *Queue) removeAt(relIdx int) *Track {
+	abs := q.cursor + 1 + relIdx
+	if abs >= len(q.items) {
+		return nil
+	}
+	t := q.items[abs]
+	q.items = append(q.items[:abs], q.items[abs+1:]...)
 	return t
 }
 
-func (pq *PriorityQueue) snapshot() []*Track {
-	out := make([]*Track, len(pq.items))
-	copy(out, pq.items)
+func (q *Queue) resetCursor() int {
+	n := q.cursor
+	if n > 0 {
+		q.items = q.items[q.cursor:]
+		q.cursor = 0
+	}
+	return n
+}
+
+func (q *Queue) clear() int {
+	n := len(q.items)
+	q.items = q.items[:0]
+	q.cursor = 0
+	return n
+}
+
+func (q *Queue) total() int       { return len(q.items) }
+func (q *Queue) hasCurrent() bool { return q.cursor >= 0 && q.cursor < len(q.items) }
+
+func (q *Queue) snapshot() []*Track {
+	out := make([]*Track, len(q.items))
+	copy(out, q.items)
 	return out
 }
-
-func (pq *PriorityQueue) len() int { return len(pq.items) }
-
-func (pq *PriorityQueue) removeAt(i int) *Track {
-	if i < 0 || i >= len(pq.items) {
-		return nil
-	}
-	t := pq.items[i]
-	pq.items = append(pq.items[:i], pq.items[i+1:]...)
-	return t
-}
-
-func (pq *PriorityQueue) clear() { pq.items = pq.items[:0] }

@@ -108,12 +108,17 @@ func (c *YouTubeClient) getVideoInfoWithClient(vid string, client *http.Client) 
 		Views:      views,
 		Embeddable: item.Status.Embeddable && item.Status.PrivacyStatus == "public",
 	}
+	ttl := videoTTL
+	if !info.Embeddable {
+		ttl = videoTTLBlocked
+	}
 	c.cache.setVideo(vid, VideoEntry{
 		Title:      info.Title,
 		Duration:   info.Duration,
 		Views:      info.Views,
 		Embeddable: info.Embeddable,
 		CategoryId: item.Snippet.CategoryId,
+		TTL:        ttl,
 	})
 	return info, nil
 }

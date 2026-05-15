@@ -15,7 +15,7 @@ type Playlist struct {
 	mu           sync.RWMutex
 	playlistID   string
 	tracks       []*Track
-	shuffleMap   map[int]int
+	order        []int
 	currentIndex int
 	isShuffled   bool
 	isEnabled    bool
@@ -35,51 +35,59 @@ type playlistAPIResponse struct {
 }
 
 func newPlaylist(yt *YouTubeClient, c *Cache) *Playlist {
-	return &Playlist{tracks: make([]*Track, 0), shuffleMap: make(map[int]int), yt: yt, cache: c}
+	return &Playlist{
+		tracks:       make([]*Track, 0),
+		currentIndex: -1,
+		yt:           yt,
+		cache:        c,
+	}
 }
 
-func (m *Playlist) load(playlistURL string) error {
+func (pl *Playlist) load(playlistURL string) error {
 	pid := extractPlaylistID(playlistURL)
 	if pid == "" {
 		return fmt.Errorf("invalid playlist URL")
 	}
-	m.mu.Lock()
-	m.playlistID = pid
-	m.tracks = m.tracks[:0]
-	m.currentIndex = 0
-	m.mu.Unlock()
+	pl.mu.Lock()
+	pl.playlistID = pid
+	pl.tracks = pl.tracks[:0]
+	pl.currentIndex = -1
+	pl.mu.Unlock()
 
-	if entry, ok := m.cache.getPlaylist(pid); ok {
+	if entry, ok := pl.cache.getPlaylist(pid); ok {
 		log.Printf("Playlist loaded from cache: %d tracks", len(entry.Tracks))
-		m.mu.Lock()
+		pl.mu.Lock()
 		for _, t := range entry.Tracks {
 			if !t.Embeddable {
 				continue
 			}
-			m.tracks = append(m.tracks, &Track{
-				VideoID: t.VideoID, Title: t.Title,
-				DurationSec: t.DurationSec, Views: t.Views,
-				AddedAt: time.Now(), AddedBy: "Playlist",
+			pl.tracks = append(pl.tracks, &Track{
+				VideoID:     t.VideoID,
+				Title:       t.Title,
+				DurationSec: t.DurationSec,
+				Views:       t.Views,
+				AddedAt:     time.Now(),
+				AddedBy:     "Playlist",
 			})
 		}
-		m.reshuffleLocked()
-		m.mu.Unlock()
+		pl.buildOrderLocked()
+		pl.mu.Unlock()
 		return nil
 	}
-	return m.fetchAndCache(pid)
+	return pl.fetchAndCache(pid)
 }
 
-func (m *Playlist) reload(playlistURL string) error {
+func (pl *Playlist) reload(playlistURL string) error {
 	pid := extractPlaylistID(playlistURL)
 	if pid == "" {
 		return fmt.Errorf("invalid playlist URL")
 	}
-	m.cache.deletePlaylist(pid)
-	return m.load(playlistURL)
+	pl.cache.deletePlaylist(pid)
+	return pl.load(playlistURL)
 }
 
-func (m *Playlist) fetchAndCache(pid string) error {
-	vids, err := m.fetchAllVideoIDs(pid)
+func (pl *Playlist) fetchAndCache(pid string) error {
+	vids, err := pl.fetchAllVideoIDs(pid)
 	if err != nil {
 		return err
 	}
@@ -87,22 +95,28 @@ func (m *Playlist) fetchAndCache(pid string) error {
 	var cTracks []PlaylistTrack
 	ok, fail := 0, 0
 	for _, vid := range vids {
-		info, err := m.yt.getVideoInfoWithClient(vid, client)
+		info, err := pl.yt.getVideoInfoWithClient(vid, client)
 		if err != nil || !info.Embeddable {
 			fail++
 			continue
 		}
-		m.mu.Lock()
-		m.tracks = append(m.tracks, &Track{
-			VideoID: vid, Title: info.Title,
-			DurationSec: info.Duration, Views: info.Views,
-			AddedAt: time.Now(), AddedBy: "Playlist",
+		pl.mu.Lock()
+		pl.tracks = append(pl.tracks, &Track{
+			VideoID:     vid,
+			Title:       info.Title,
+			DurationSec: info.Duration,
+			Views:       info.Views,
+			AddedAt:     time.Now(),
+			AddedBy:     "Playlist",
 		})
-		m.mu.Unlock()
+		pl.mu.Unlock()
 		cTracks = append(cTracks, PlaylistTrack{
-			VideoID: vid, Title: info.Title,
-			DurationSec: info.Duration, Views: info.Views, Embeddable: true,
-			CategoryId: "10",
+			VideoID:     vid,
+			Title:       info.Title,
+			DurationSec: info.Duration,
+			Views:       info.Views,
+			Embeddable:  true,
+			CategoryId:  "10",
 		})
 		ok++
 	}
@@ -110,24 +124,24 @@ func (m *Playlist) fetchAndCache(pid string) error {
 		return fmt.Errorf("no valid tracks found in playlist")
 	}
 	log.Printf("Loaded playlist: %d tracks (%d skipped)", ok, fail)
-	m.cache.setPlaylist(pid, PlaylistEntry{Tracks: cTracks})
-	m.mu.Lock()
-	m.reshuffleLocked()
-	m.mu.Unlock()
+	pl.cache.setPlaylist(pid, PlaylistEntry{Tracks: cTracks})
+	pl.mu.Lock()
+	pl.buildOrderLocked()
+	pl.mu.Unlock()
 	return nil
 }
 
-func (m *Playlist) fetchAllVideoIDs(pid string) ([]string, error) {
-	var vids []string
-	pageToken := ""
-	client := &http.Client{Timeout: 20 * time.Second}
-	if m.yt.apiKey == "" {
+func (pl *Playlist) fetchAllVideoIDs(pid string) ([]string, error) {
+	if pl.yt.apiKey == "" {
 		return nil, fmt.Errorf("YouTube API key not configured")
 	}
+	client := &http.Client{Timeout: 20 * time.Second}
+	var vids []string
+	pageToken := ""
 	for {
 		u := fmt.Sprintf(
 			"https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=%s&maxResults=50&key=%s",
-			pid, m.yt.apiKey,
+			pid, pl.yt.apiKey,
 		)
 		if pageToken != "" {
 			u += "&pageToken=" + pageToken
@@ -177,152 +191,145 @@ func extractPlaylistID(rawURL string) string {
 	return ""
 }
 
-func (m *Playlist) getNext() *Track {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if !m.isEnabled || len(m.tracks) == 0 {
+// getNext returns the next track in sequence and advances currentIndex.
+// Called only when the main queue is exhausted.
+func (pl *Playlist) getNext() *Track {
+	pl.mu.Lock()
+	defer pl.mu.Unlock()
+	if !pl.isEnabled || len(pl.tracks) == 0 {
 		return nil
 	}
-	idx := m.currentIndex
-	if m.isShuffled {
-		if s, ok := m.shuffleMap[idx]; ok {
-			idx = s
+	next := pl.currentIndex + 1
+	if next >= len(pl.tracks) {
+		next = 0
+		if pl.isShuffled {
+			pl.buildOrderLocked()
 		}
 	}
-	if idx >= len(m.tracks) {
-		idx = 0
-	}
-	src := m.tracks[idx]
-	return &Track{VideoID: src.VideoID, Title: src.Title, DurationSec: src.DurationSec, Views: src.Views, AddedAt: time.Now(), AddedBy: "Playlist"}
+	pl.currentIndex = next
+	return pl.trackAtLocked(pl.currentIndex)
 }
 
-func (m *Playlist) advanceToNext() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.currentIndex++
-	if m.currentIndex >= len(m.tracks) {
-		m.currentIndex = 0
-		if m.isShuffled {
-			m.reshuffleLocked()
-		}
-	}
-}
-
-func (m *Playlist) getAt(i int) *Track {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	if i < 0 || i >= len(m.tracks) {
+// jumpTo sets currentIndex to the given track (by original slice index) and returns it.
+func (pl *Playlist) jumpTo(trackIdx int) *Track {
+	pl.mu.Lock()
+	defer pl.mu.Unlock()
+	if trackIdx < 0 || trackIdx >= len(pl.tracks) {
 		return nil
 	}
-	src := m.tracks[i]
-	return &Track{VideoID: src.VideoID, Title: src.Title, DurationSec: src.DurationSec, Views: src.Views, AddedAt: time.Now(), AddedBy: "Playlist"}
+	if pl.isShuffled {
+		for i, v := range pl.order {
+			if v == trackIdx {
+				pl.currentIndex = i
+				break
+			}
+		}
+	} else {
+		pl.currentIndex = trackIdx
+	}
+	return pl.trackAtLocked(pl.currentIndex)
 }
 
-func (m *Playlist) goToPrevious() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.currentIndex--
-	if m.currentIndex < 0 {
-		m.currentIndex = len(m.tracks) - 1
+// activeTrackIndex returns the index of the currently playing track
+// in the original (display) slice, for correct UI highlighting.
+func (pl *Playlist) activeTrackIndex() int {
+	pl.mu.RLock()
+	defer pl.mu.RUnlock()
+	return pl.activeTrackIndexLocked()
+}
+
+func (pl *Playlist) activeTrackIndexLocked() int {
+	if pl.currentIndex < 0 || len(pl.tracks) == 0 {
+		return -1
+	}
+	if pl.isShuffled && pl.currentIndex < len(pl.order) {
+		return pl.order[pl.currentIndex]
+	}
+	return pl.currentIndex
+}
+
+func (pl *Playlist) trackAtLocked(pos int) *Track {
+	if pos < 0 || len(pl.tracks) == 0 {
+		return nil
+	}
+	idx := pos
+	if pl.isShuffled && pos < len(pl.order) {
+		idx = pl.order[pos]
+	}
+	if idx < 0 || idx >= len(pl.tracks) {
+		return nil
+	}
+	src := pl.tracks[idx]
+	return &Track{
+		VideoID:     src.VideoID,
+		Title:       src.Title,
+		DurationSec: src.DurationSec,
+		Views:       src.Views,
+		AddedAt:     time.Now(),
+		AddedBy:     "Playlist",
 	}
 }
 
-func (m *Playlist) jumpToIndex(i int) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if i < 0 || i >= len(m.tracks) {
-		return fmt.Errorf("index out of range")
+func (pl *Playlist) toggleShuffle() {
+	pl.mu.Lock()
+	defer pl.mu.Unlock()
+	pl.isShuffled = !pl.isShuffled
+	pl.currentIndex = -1
+	if pl.isShuffled {
+		pl.buildOrderLocked()
 	}
-	m.currentIndex = i
-	return nil
+	log.Printf("Playlist shuffle: %v", pl.isShuffled)
 }
 
-func (m *Playlist) toggleShuffle() {
-	m.mu.Lock()
-	m.isShuffled = !m.isShuffled
-	if m.isShuffled {
-		m.reshuffleLocked()
-	}
-	log.Printf("Playlist shuffle %v", m.isShuffled)
-	m.mu.Unlock()
-}
-
-func (m *Playlist) reshuffleLocked() {
-	m.shuffleMap = make(map[int]int, len(m.tracks))
-	indices := make([]int, len(m.tracks))
-	for i := range indices {
-		indices[i] = i
+// buildOrderLocked builds a shuffled index mapping. order[pos] = actual track index.
+func (pl *Playlist) buildOrderLocked() {
+	n := len(pl.tracks)
+	pl.order = make([]int, n)
+	for i := range pl.order {
+		pl.order[i] = i
 	}
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	rng.Shuffle(len(indices), func(i, j int) { indices[i], indices[j] = indices[j], indices[i] })
-	for shuffled, original := range indices {
-		m.shuffleMap[original] = shuffled
-	}
+	rng.Shuffle(n, func(i, j int) { pl.order[i], pl.order[j] = pl.order[j], pl.order[i] })
 }
 
-func (m *Playlist) enable() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.isEnabled = true
+func (pl *Playlist) enable() {
+	pl.mu.Lock()
+	defer pl.mu.Unlock()
+	pl.isEnabled = true
 }
 
-func (m *Playlist) disable() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.isEnabled = false
+func (pl *Playlist) disable() {
+	pl.mu.Lock()
+	defer pl.mu.Unlock()
+	pl.isEnabled = false
 }
 
-func (m *Playlist) isEnabledVal() bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.isEnabled
+func (pl *Playlist) getTracks() []*Track {
+	pl.mu.RLock()
+	defer pl.mu.RUnlock()
+	return pl.tracks
 }
 
-func (m *Playlist) getTracks() []*Track {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.tracks
-}
-
-func (m *Playlist) currentIndexVal() int {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.currentIndex
-}
-
-func (m *Playlist) status() map[string]any {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+func (pl *Playlist) status() map[string]any {
+	pl.mu.RLock()
+	defer pl.mu.RUnlock()
 	return map[string]any{
-		"enabled":       m.isEnabled,
-		"shuffled":      m.isShuffled,
-		"playlist_id":   m.playlistID,
-		"total_tracks":  len(m.tracks),
-		"current_index": m.currentIndex,
-		"loaded":        len(m.tracks) > 0,
+		"enabled":       pl.isEnabled,
+		"shuffled":      pl.isShuffled,
+		"playlist_id":   pl.playlistID,
+		"total_tracks":  len(pl.tracks),
+		"current_index": pl.activeTrackIndexLocked(),
+		"loaded":        len(pl.tracks) > 0,
 	}
 }
 
-func (m *Playlist) isShuffledVal() bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.isShuffled
+func (pl *Playlist) currentIndexVal() int { return pl.activeTrackIndex() }
+func (pl *Playlist) isEnabledVal() bool   { pl.mu.RLock(); defer pl.mu.RUnlock(); return pl.isEnabled }
+func (pl *Playlist) isShuffledVal() bool  { pl.mu.RLock(); defer pl.mu.RUnlock(); return pl.isShuffled }
+func (pl *Playlist) getPlaylistID() string {
+	pl.mu.RLock()
+	defer pl.mu.RUnlock()
+	return pl.playlistID
 }
-
-func (m *Playlist) getPlaylistID() string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.playlistID
-}
-
-func (m *Playlist) loaded() bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return len(m.tracks) > 0
-}
-
-func (m *Playlist) lenVal() int {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return len(m.tracks)
-}
+func (pl *Playlist) lenVal() int  { pl.mu.RLock(); defer pl.mu.RUnlock(); return len(pl.tracks) }
+func (pl *Playlist) loaded() bool { pl.mu.RLock(); defer pl.mu.RUnlock(); return len(pl.tracks) > 0 }
