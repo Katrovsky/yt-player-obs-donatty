@@ -808,26 +808,16 @@
       font-size: 0.65rem;
     }
 
-    .overlay-mode-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 4px;
-    }
-
-    .overlay-mode-label {
-      font-size: 0.78rem;
-      color: var(--txt2);
-    }
-
     .overlay-mode-btns {
       display: flex;
       gap: 4px;
+      margin-top: 6px;
     }
 
     .overlay-btn {
-      height: 26px;
-      padding: 0 10px;
+      flex: 1;
+      height: 28px;
+      padding: 0 6px;
       border-radius: 5px;
       border: 1px solid var(--border2);
       background: transparent;
@@ -835,6 +825,7 @@
       font-size: 0.72rem;
       font-family: 'DM Sans', sans-serif;
       cursor: pointer;
+      white-space: nowrap;
       transition: border-color .15s, color .15s, background .15s;
     }
 
@@ -877,12 +868,9 @@
 
         <div class="field-group">
           <label class="field-label">Overlay mode</label>
-          <div class="overlay-mode-row">
-            <span class="overlay-mode-label">OBS source display</span>
-            <div class="overlay-mode-btns">
-              <button class="overlay-btn" id="ovNp" onclick="overlay.set('nowplaying')">Now Playing</button>
-              <button class="overlay-btn" id="ovVideo" onclick="overlay.set('video')">Video</button>
-            </div>
+          <div class="overlay-mode-btns">
+            <button class="overlay-btn" id="ovNp" onclick="overlay.set('nowplaying')">Now Playing</button>
+            <button class="overlay-btn" id="ovVideo" onclick="overlay.set('video')">Video</button>
           </div>
         </div>
         <div class="divider"></div>
@@ -1213,14 +1201,13 @@
 
 
     const overlay = {
-      KEY: 'yt-player-overlay-mode',
-      init() {
-        const cur = localStorage.getItem(this.KEY) || 'nowplaying';
-        this.render(cur);
+      async init() {
+        const d = await api.fetch('/api/overlay/mode');
+        if (d.success) this.render(d.data.mode);
       },
-      set(mode) {
-        localStorage.setItem(this.KEY, mode);
-        this.render(mode);
+      async set(mode) {
+        const d = await api.fetch(`/api/overlay/set?mode=${mode}`, { method: 'POST' });
+        if (d.success) this.render(d.data.mode);
       },
       render(mode) {
         document.getElementById('ovNp').classList.toggle('active', mode === 'nowplaying');
