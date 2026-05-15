@@ -19,19 +19,35 @@ type apiResponse struct {
 }
 
 type Hub struct {
-	mu       sync.Mutex
-	conns    map[*websocket.Conn]struct{}
-	upgrader websocket.Upgrader
+	mu          sync.Mutex
+	conns       map[*websocket.Conn]struct{}
+	upgrader    websocket.Upgrader
+	overlayMode string
+	modeMu      sync.RWMutex
 }
 
 func newHub() *Hub {
 	return &Hub{
-		conns:    make(map[*websocket.Conn]struct{}),
-		upgrader: websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }},
+		conns:       make(map[*websocket.Conn]struct{}),
+		upgrader:    websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }},
+		overlayMode: "nowplaying",
 	}
 }
 
+func (h *Hub) setOverlayMode(mode string) {
+	h.modeMu.Lock()
+	h.overlayMode = mode
+	h.modeMu.Unlock()
+}
+
+func (h *Hub) getOverlayMode() string {
+	h.modeMu.RLock()
+	defer h.modeMu.RUnlock()
+	return h.overlayMode
+}
+
 func (h *Hub) send(st PlayerState) {
+	st.OverlayMode = h.getOverlayMode()
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for c := range h.conns {
@@ -78,6 +94,8 @@ func (s *Server) register(mux *http.ServeMux) {
 		"/api/playlist/jump":    s.handlePlaylistJump,
 		"/api/playlist/shuffle": s.handlePlaylistShuffle,
 		"/api/donation/status":  s.handleDonationStatus,
+		"/api/overlay/mode":     s.handleOverlayMode,
+		"/api/overlay/set":      s.handleOverlaySet,
 	}
 	for path, h := range routes {
 		mux.HandleFunc(path, cors(h))
@@ -373,6 +391,24 @@ func (s *Server) handleDonationStatus(w http.ResponseWriter, r *http.Request) {
 	reply(w, http.StatusOK, apiResponse{Success: true, Data: map[string]any{"enabled": s.donationOn}})
 }
 
+func (s *Server) handleOverlayMode(w http.ResponseWriter, r *http.Request) {
+	reply(w, http.StatusOK, apiResponse{Success: true, Data: map[string]any{"mode": s.hub.getOverlayMode()}})
+}
+
+func (s *Server) handleOverlaySet(w http.ResponseWriter, r *http.Request) {
+	if !requirePost(w, r) {
+		return
+	}
+	mode := r.URL.Query().Get("mode")
+	if mode != "nowplaying" && mode != "video" {
+		reply(w, http.StatusBadRequest, apiResponse{Success: false, Message: "invalid mode, use nowplaying or video"})
+		return
+	}
+	s.hub.setOverlayMode(mode)
+	s.hub.send(s.p.currentState())
+	reply(w, http.StatusOK, apiResponse{Success: true, Data: map[string]any{"mode": mode}})
+}
+
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	conn, err := s.hub.upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -382,7 +418,9 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	s.hub.conns[conn] = struct{}{}
 	s.hub.mu.Unlock()
 
-	conn.WriteJSON(s.p.currentState())
+	st := s.p.currentState()
+	st.OverlayMode = s.hub.getOverlayMode()
+	conn.WriteJSON(st)
 
 	for {
 		if _, _, err := conn.ReadMessage(); err != nil {

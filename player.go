@@ -9,11 +9,12 @@ import (
 )
 
 type PlayerState struct {
-	Action   string         `json:"action"`
-	Current  *Track         `json:"current,omitempty"`
-	Queue    []*Track       `json:"queue,omitempty"`
-	Position int            `json:"position"`
-	Playlist PlaylistStatus `json:"playlist"`
+	Action      string         `json:"action"`
+	Current     *Track         `json:"current,omitempty"`
+	Queue       []*Track       `json:"queue,omitempty"`
+	Position    int            `json:"position"`
+	Playlist    PlaylistStatus `json:"playlist"`
+	OverlayMode string         `json:"overlay_mode,omitempty"`
 }
 
 type PlaylistStatus struct {
