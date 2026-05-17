@@ -15,6 +15,24 @@ import (
 
 const maxSeenDonations = 500
 
+// isModerationError returns true for config-based rejections a streamer
+// can override, false for hard technical failures.
+func isModerationError(err error) bool {
+	msg := err.Error()
+	for _, s := range []string{
+		"too long",
+		"insufficient views",
+		"queue is full",
+		"repeat limit",
+		"only music videos are allowed",
+	} {
+		if strings.Contains(msg, s) {
+			return true
+		}
+	}
+	return false
+}
+
 type DonationMonitor struct {
 	widgetURL     string
 	minAmount     int
@@ -25,6 +43,8 @@ type DonationMonitor struct {
 	mu            sync.Mutex
 	backoff       time.Duration
 	addTrack      func(vid, by string, paid bool) error
+	moderation    *ModerationQueue
+	yt            *YouTubeClient
 }
 
 type donationAuthResponse struct {
@@ -48,13 +68,15 @@ type donationData struct {
 	Message     string `json:"message"`
 }
 
-func newDonationMonitor(widgetURL string, minAmount int, addTrack func(vid, by string, paid bool) error) (*DonationMonitor, error) {
+func newDonationMonitor(widgetURL string, minAmount int, addTrack func(vid, by string, paid bool) error, mod *ModerationQueue, yt *YouTubeClient) (*DonationMonitor, error) {
 	m := &DonationMonitor{
 		widgetURL:     widgetURL,
 		minAmount:     minAmount,
 		seenDonations: make(map[string]time.Time),
 		backoff:       10 * time.Second,
 		addTrack:      addTrack,
+		moderation:    mod,
+		yt:            yt,
 	}
 	u, err := url.Parse(widgetURL)
 	if err != nil {
@@ -161,15 +183,34 @@ func (m *DonationMonitor) processEvent(data string) {
 		m.evictOldest()
 	}
 	m.mu.Unlock()
+
 	vid := extractVideoID(dd.Message)
 	if vid == "" {
 		log.Printf("No YouTube link in donation from %s", dd.DisplayName)
 		return
 	}
+
 	log.Printf("Adding donation track from %s: %s", dd.DisplayName, vid)
 	go func() {
 		if err := m.addTrack(vid, dd.DisplayName, true); err != nil {
-			log.Printf("Failed to add donation track: %v", err)
+			if !isModerationError(err) {
+				log.Printf("Donation track rejected (technical): %v", err)
+				return
+			}
+			log.Printf("Donation track pending moderation from %s: %v", dd.DisplayName, err)
+			title := vid
+			if info, infoErr := m.yt.getVideoInfoForce(vid); infoErr == nil {
+				title = info.Title
+			}
+			m.moderation.add(&PendingDonation{
+				ID:          dd.RefID,
+				DisplayName: dd.DisplayName,
+				Amount:      dd.Amount,
+				VideoID:     vid,
+				VideoTitle:  title,
+				Reason:      err.Error(),
+				ReceivedAt:  time.Now(),
+			})
 		}
 	}()
 }

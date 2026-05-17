@@ -24,6 +24,7 @@ type Hub struct {
 	upgrader    websocket.Upgrader
 	overlayMode string
 	modeMu      sync.RWMutex
+	moderation  *ModerationQueue
 }
 
 func newHub() *Hub {
@@ -32,6 +33,10 @@ func newHub() *Hub {
 		upgrader:    websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }},
 		overlayMode: "nowplaying",
 	}
+}
+
+func (h *Hub) setModeration(mod *ModerationQueue) {
+	h.moderation = mod
 }
 
 func (h *Hub) setOverlayMode(mode string) {
@@ -48,6 +53,9 @@ func (h *Hub) getOverlayMode() string {
 
 func (h *Hub) send(st PlayerState) {
 	st.OverlayMode = h.getOverlayMode()
+	if h.moderation != nil {
+		st.PendingModeration = h.moderation.list()
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for c := range h.conns {
@@ -63,11 +71,12 @@ type Server struct {
 	hub         *Hub
 	yt          *YouTubeClient
 	donationOn  bool
+	moderation  *ModerationQueue
 	staticFiles embed.FS
 }
 
-func newServer(p *Player, hub *Hub, yt *YouTubeClient, donationOn bool, static embed.FS) *Server {
-	return &Server{p: p, hub: hub, yt: yt, donationOn: donationOn, staticFiles: static}
+func newServer(p *Player, hub *Hub, yt *YouTubeClient, donationOn bool, mod *ModerationQueue, static embed.FS) *Server {
+	return &Server{p: p, hub: hub, yt: yt, donationOn: donationOn, moderation: mod, staticFiles: static}
 }
 
 func (s *Server) register(mux *http.ServeMux) {
@@ -94,8 +103,11 @@ func (s *Server) register(mux *http.ServeMux) {
 		"/api/playlist/jump":    s.handlePlaylistJump,
 		"/api/playlist/shuffle": s.handlePlaylistShuffle,
 		"/api/donation/status":  s.handleDonationStatus,
-		"/api/overlay/mode":     s.handleOverlayMode,
-		"/api/overlay/set":      s.handleOverlaySet,
+		"/api/overlay/mode":          s.handleOverlayMode,
+		"/api/overlay/set":           s.handleOverlaySet,
+		"/api/moderation/pending":    s.handleModerationPending,
+		"/api/moderation/approve":    s.handleModerationApprove,
+		"/api/moderation/reject":     s.handleModerationReject,
 	}
 	for path, h := range routes {
 		mux.HandleFunc(path, cors(h))
@@ -443,6 +455,50 @@ func (s *Server) handleStatic(name, contentType string) http.HandlerFunc {
 		w.Header().Set("Content-Type", contentType+"; charset=utf-8")
 		w.Write(data)
 	}
+}
+
+
+func (s *Server) handleModerationPending(w http.ResponseWriter, r *http.Request) {
+	reply(w, http.StatusOK, apiResponse{Success: true, Data: s.moderation.list()})
+}
+
+func (s *Server) handleModerationApprove(w http.ResponseWriter, r *http.Request) {
+	if !requirePost(w, r) {
+		return
+	}
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		reply(w, http.StatusBadRequest, apiResponse{Success: false, Message: "Missing id"})
+		return
+	}
+	item, _ := s.moderation.get(id)
+	if item == nil {
+		reply(w, http.StatusNotFound, apiResponse{Success: false, Message: "Donation not found"})
+		return
+	}
+	if err := s.p.approveTrack(item.VideoID, item.DisplayName); err != nil {
+		reply(w, http.StatusBadRequest, apiResponse{Success: false, Message: err.Error()})
+		return
+	}
+	s.moderation.remove(id)
+	s.hub.send(s.p.currentState())
+	reply(w, http.StatusOK, apiResponse{Success: true, Message: "Track approved and added to queue"})
+}
+
+func (s *Server) handleModerationReject(w http.ResponseWriter, r *http.Request) {
+	if !requirePost(w, r) {
+		return
+	}
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		reply(w, http.StatusBadRequest, apiResponse{Success: false, Message: "Missing id"})
+		return
+	}
+	if !s.moderation.remove(id) {
+		reply(w, http.StatusNotFound, apiResponse{Success: false, Message: "Donation not found"})
+		return
+	}
+	reply(w, http.StatusOK, apiResponse{Success: true, Message: "Donation rejected"})
 }
 
 func broadcastLoop(p *Player, hub *Hub) {

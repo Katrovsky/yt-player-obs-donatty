@@ -30,6 +30,11 @@ func main() {
 	p := newPlayer(cfg, yt)
 	hub := newHub()
 
+	mod := newModerationQueue(func() {
+		hub.send(p.currentState())
+	})
+	hub.setModeration(mod)
+
 	pl := newPlaylist(yt, db)
 	p.setPlaylist(pl)
 	if c.FallbackPlaylistURL != "" {
@@ -45,7 +50,7 @@ func main() {
 
 	if c.DonationWidgetURL != "" {
 		go func() {
-			mon, err := newDonationMonitor(c.DonationWidgetURL, c.DonationMinAmount, p.validateAndAdd)
+			mon, err := newDonationMonitor(c.DonationWidgetURL, c.DonationMinAmount, p.validateAndAdd, mod, yt)
 			if err != nil {
 				log.Printf("Failed to init donation monitor: %v", err)
 				return
@@ -57,7 +62,7 @@ func main() {
 	go broadcastLoop(p, hub)
 	go cleanupLoop(p, cfg)
 
-	srv := newServer(p, hub, yt, c.DonationWidgetURL != "", staticFiles)
+	srv := newServer(p, hub, yt, c.DonationWidgetURL != "", mod, staticFiles)
 	mux := http.NewServeMux()
 	srv.register(mux)
 

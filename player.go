@@ -9,12 +9,13 @@ import (
 )
 
 type PlayerState struct {
-	Action      string         `json:"action"`
-	Current     *Track         `json:"current,omitempty"`
-	Queue       []*Track       `json:"queue,omitempty"`
-	Position    int            `json:"position"`
-	Playlist    PlaylistStatus `json:"playlist"`
-	OverlayMode string         `json:"overlay_mode,omitempty"`
+	Action            string             `json:"action"`
+	Current           *Track             `json:"current,omitempty"`
+	Queue             []*Track           `json:"queue,omitempty"`
+	Position          int                `json:"position"`
+	Playlist          PlaylistStatus     `json:"playlist"`
+	OverlayMode       string             `json:"overlay_mode,omitempty"`
+	PendingModeration []*PendingDonation `json:"pending_moderation,omitempty"`
 }
 
 type PlaylistStatus struct {
@@ -308,6 +309,35 @@ func (p *Player) nowPlaying() map[string]any {
 	resp["full_title"] = full
 	resp["url"] = fmt.Sprintf("https://www.youtube.com/watch?v=%s", cur.VideoID)
 	return resp
+}
+
+func (p *Player) approveTrack(vid, by string) error {
+	info, err := p.yt.getVideoInfoForce(vid)
+	if err != nil {
+		return err
+	}
+	if !info.Embeddable {
+		return fmt.Errorf("video is not available for playback")
+	}
+	t := &Track{
+		VideoID:     vid,
+		Title:       info.Title,
+		DurationSec: info.Duration,
+		Views:       info.Views,
+		AddedAt:     time.Now(),
+		AddedBy:     by,
+		IsPaid:      true,
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	hadNoCurrent := p.q.current() == nil
+	p.q.add(t)
+	log.Printf("Approved donation track: %s by %s", t.Title, by)
+	if p.state == "stopped" && hadNoCurrent {
+		p.state = "playing"
+	}
+	p.broadcast()
+	return nil
 }
 
 func (p *Player) canRepeat(id string) bool {

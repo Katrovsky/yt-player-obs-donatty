@@ -44,6 +44,15 @@ func (c *YouTubeClient) getVideoInfo(vid string) (VideoInfo, error) {
 	return c.getVideoInfoWithClient(vid, &http.Client{Timeout: 20 * time.Second})
 }
 
+// getVideoInfoForce fetches video info without enforcing the music category
+// restriction. Used for moderation approvals. Embeddable is still enforced.
+func (c *YouTubeClient) getVideoInfoForce(vid string) (VideoInfo, error) {
+	if e, ok := c.cache.getVideo(vid); ok {
+		return VideoInfo{Title: e.Title, Duration: e.Duration, Views: e.Views, Embeddable: e.Embeddable}, nil
+	}
+	return c.fetchVideoInfo(vid, &http.Client{Timeout: 20 * time.Second}, true)
+}
+
 func (c *YouTubeClient) getVideoInfoWithClient(vid string, client *http.Client) (VideoInfo, error) {
 	if e, ok := c.cache.getVideo(vid); ok {
 		if e.CategoryId != "10" {
@@ -51,6 +60,10 @@ func (c *YouTubeClient) getVideoInfoWithClient(vid string, client *http.Client) 
 		}
 		return VideoInfo{Title: e.Title, Duration: e.Duration, Views: e.Views, Embeddable: e.Embeddable}, nil
 	}
+	return c.fetchVideoInfo(vid, client, false)
+}
+
+func (c *YouTubeClient) fetchVideoInfo(vid string, client *http.Client, skipCategory bool) (VideoInfo, error) {
 	if c.apiKey == "" {
 		return VideoInfo{}, fmt.Errorf("YouTube API key not configured")
 	}
@@ -99,7 +112,7 @@ func (c *YouTubeClient) getVideoInfoWithClient(vid string, client *http.Client) 
 	if item.Statistics.ViewCount != "" {
 		views, _ = strconv.Atoi(item.Statistics.ViewCount)
 	}
-	if item.Snippet.CategoryId != "10" {
+	if !skipCategory && item.Snippet.CategoryId != "10" {
 		return VideoInfo{}, fmt.Errorf("only music videos are allowed")
 	}
 	info := VideoInfo{

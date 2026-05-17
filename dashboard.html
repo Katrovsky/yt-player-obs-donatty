@@ -839,6 +839,148 @@
       border-color: var(--accent);
       color: #fff;
     }
+
+    /* ── Moderation ── */
+    .mod-banner {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 12px;
+      background: color-mix(in srgb, var(--gold) 10%, var(--surface2));
+      border: 1px solid color-mix(in srgb, var(--gold) 30%, transparent);
+      border-radius: var(--radius);
+      margin-bottom: 10px;
+      cursor: pointer;
+      transition: background .15s;
+    }
+
+    .mod-banner:hover {
+      background: color-mix(in srgb, var(--gold) 16%, var(--surface2));
+    }
+
+    .mod-banner.visible {
+      display: flex;
+    }
+
+    .mod-banner-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--gold);
+      box-shadow: 0 0 6px var(--gold);
+      flex-shrink: 0;
+    }
+
+    .mod-banner-text {
+      font-size: 0.78rem;
+      color: var(--gold);
+      flex: 1;
+    }
+
+    .mod-banner-count {
+      font-size: 0.7rem;
+      font-family: 'DM Mono', monospace;
+      font-weight: 600;
+      color: var(--gold);
+    }
+
+    .mod-panel {
+      display: none;
+      margin-bottom: 10px;
+    }
+
+    .mod-panel.visible {
+      display: block;
+    }
+
+    .mod-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 12px;
+      margin-bottom: 6px;
+    }
+
+    .mod-card-title {
+      font-size: 0.85rem;
+      font-weight: 500;
+      margin-bottom: 3px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .mod-card-title a {
+      color: var(--txt);
+      text-decoration: none;
+    }
+
+    .mod-card-title a:hover {
+      color: var(--accent);
+    }
+
+    .mod-card-meta {
+      font-size: 0.72rem;
+      color: var(--txt2);
+      margin-bottom: 8px;
+    }
+
+    .mod-card-reason {
+      font-size: 0.7rem;
+      color: var(--amber);
+      font-family: 'DM Mono', monospace;
+      margin-bottom: 8px;
+    }
+
+    .mod-card-actions {
+      display: flex;
+      gap: 6px;
+    }
+
+    .mod-approve {
+      flex: 1;
+      height: 28px;
+      border-radius: 5px;
+      background: color-mix(in srgb, var(--green) 15%, transparent);
+      border: 1px solid color-mix(in srgb, var(--green) 40%, transparent);
+      color: var(--green);
+      font-size: 0.75rem;
+      font-family: 'DM Sans', sans-serif;
+      cursor: pointer;
+      transition: background .15s;
+    }
+
+    .mod-approve:hover {
+      background: color-mix(in srgb, var(--green) 25%, transparent);
+    }
+
+    .mod-approve:disabled {
+      opacity: .45;
+      cursor: not-allowed;
+    }
+
+    .mod-reject {
+      flex: 1;
+      height: 28px;
+      border-radius: 5px;
+      background: transparent;
+      border: 1px solid var(--border2);
+      color: var(--txt2);
+      font-size: 0.75rem;
+      font-family: 'DM Sans', sans-serif;
+      cursor: pointer;
+      transition: border-color .15s, color .15s;
+    }
+
+    .mod-reject:hover {
+      border-color: var(--red);
+      color: var(--red);
+    }
+
+    .mod-reject:disabled {
+      opacity: .45;
+      cursor: not-allowed;
+    }
   </style>
 </head>
 
@@ -857,6 +999,13 @@
     <aside class="sidebar">
       <div class="sidebar-title">Controls</div>
       <div class="sidebar-body">
+
+        <div class="mod-banner" id="modBanner" onclick="ui.toggleMod()">
+          <div class="mod-banner-dot"></div>
+          <span class="mod-banner-text">Donations pending review</span>
+          <span class="mod-banner-count" id="modCount">0</span>
+        </div>
+        <div class="mod-panel" id="modPanel"></div>
 
         <div class="field-group">
           <label class="field-label">Add track</label>
@@ -1243,6 +1392,7 @@
           ui.update(d);
           ui.queue(d);
           ui.playlist(d.playlist);
+          if (d.pending_moderation !== undefined) ui.moderation(d.pending_moderation);
         } catch (_) { }
       };
       ws.onclose = () => {
@@ -1258,6 +1408,7 @@
     window.addEventListener('load', async () => {
       connect();
       overlay.init();
+      api.fetch('/api/moderation/pending').then(d => { if (d.success) ui.moderation(d.data); });
       const don = await api.fetch('/api/donation/status');
       if (don.success) {
         const dot = document.getElementById('donDot');
@@ -1272,6 +1423,78 @@
         else if (e.code === 'ArrowLeft') { e.preventDefault(); api.cmd('previous'); }
       });
     });
+
+    // ── Moderation ──────────────────────────────────────────────────────────
+    ui.modOpen = false;
+    ui._modItems = [];
+    ui.toggleMod = function () {
+      ui.modOpen = !ui.modOpen;
+      const panel = document.getElementById('modPanel');
+      panel.classList.toggle('visible', ui.modOpen);
+      if (ui.modOpen) ui._renderModCards(ui._modItems);
+    };
+
+    ui._renderModCards = function (items) {
+      const panel = document.getElementById('modPanel');
+      if (!panel) return;
+      panel.innerHTML = items.map(d => `
+        <div class="mod-card" id="mod-${d.id}">
+          <div class="mod-card-title">
+            <a href="https://www.youtube.com/watch?v=${d.video_id}" target="_blank">${d.video_title}</a>
+          </div>
+          <div class="mod-card-meta">${d.display_name} · ${d.amount}₽</div>
+          <div class="mod-card-reason">${d.reason}</div>
+          <div class="mod-card-actions">
+            <button class="mod-approve" id="mod-approve-${d.id}" onclick="modAction.approve('${d.id}')">Approve</button>
+            <button class="mod-reject"  id="mod-reject-${d.id}"  onclick="modAction.reject('${d.id}')">Reject</button>
+          </div>
+        </div>`).join('');
+    };
+
+    ui.moderation = function (items) {
+      const banner = document.getElementById('modBanner');
+      const panel = document.getElementById('modPanel');
+      const count = document.getElementById('modCount');
+      if (!banner) return;
+      ui._modItems = items || [];
+      if (ui._modItems.length === 0) {
+        banner.classList.remove('visible');
+        panel.classList.remove('visible');
+        ui.modOpen = false;
+        return;
+      }
+      banner.classList.add('visible');
+      count.textContent = ui._modItems.length;
+      if (ui.modOpen) ui._renderModCards(ui._modItems);
+    };
+
+    const modAction = {
+      async approve(id) {
+        this._setDisabled(id, true);
+        const d = await api.fetch(`/api/moderation/approve?id=${id}`, { method: 'POST' });
+        if (!d.success) { alert(d.message); this._setDisabled(id, false); return; }
+        document.getElementById(`mod-${id}`)?.remove();
+        await this._refresh();
+      },
+      async reject(id) {
+        this._setDisabled(id, true);
+        const d = await api.fetch(`/api/moderation/reject?id=${id}`, { method: 'POST' });
+        if (!d.success) { alert(d.message); this._setDisabled(id, false); return; }
+        document.getElementById(`mod-${id}`)?.remove();
+        await this._refresh();
+      },
+      _setDisabled(id, v) {
+        const a = document.getElementById(`mod-approve-${id}`);
+        const r = document.getElementById(`mod-reject-${id}`);
+        if (a) a.disabled = v;
+        if (r) r.disabled = v;
+      },
+      async _refresh() {
+        const d = await api.fetch('/api/moderation/pending');
+        if (d.success) ui.moderation(d.data);
+      },
+    };
+
   </script>
 </body>
 

@@ -230,6 +230,146 @@
       color: var(--txt3);
       margin-bottom: 4px;
     }
+
+    .mod-banner {
+      display: none;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      background: color-mix(in srgb, var(--gold) 10%, var(--surface));
+      border: 1px solid color-mix(in srgb, var(--gold) 30%, transparent);
+      border-radius: 7px;
+      cursor: pointer;
+      transition: background .15s;
+    }
+
+    .mod-banner:hover {
+      background: color-mix(in srgb, var(--gold) 16%, var(--surface));
+    }
+
+    .mod-banner.visible {
+      display: flex;
+    }
+
+    .mod-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--gold);
+      box-shadow: 0 0 5px var(--gold);
+      flex-shrink: 0;
+    }
+
+    .mod-banner-text {
+      font-size: 0.7rem;
+      color: var(--gold);
+      flex: 1;
+    }
+
+    .mod-banner-count {
+      font-size: 0.68rem;
+      font-family: 'DM Mono', monospace;
+      font-weight: 600;
+      color: var(--gold);
+    }
+
+    .mod-panel {
+      display: none;
+    }
+
+    .mod-panel.visible {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .mod-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+    }
+
+    .mod-card-title {
+      font-size: 0.78rem;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-bottom: 2px;
+    }
+
+    .mod-card-title a {
+      color: var(--txt);
+      text-decoration: none;
+    }
+
+    .mod-card-title a:hover {
+      color: var(--accent);
+    }
+
+    .mod-card-meta {
+      font-size: 0.68rem;
+      color: var(--txt2);
+      margin-bottom: 3px;
+    }
+
+    .mod-card-reason {
+      font-size: 0.65rem;
+      color: var(--amber);
+      font-family: 'DM Mono', monospace;
+      margin-bottom: 6px;
+    }
+
+    .mod-card-actions {
+      display: flex;
+      gap: 5px;
+    }
+
+    .mod-approve {
+      flex: 1;
+      height: 26px;
+      border-radius: 5px;
+      background: color-mix(in srgb, var(--green) 15%, transparent);
+      border: 1px solid color-mix(in srgb, var(--green) 40%, transparent);
+      color: var(--green);
+      font-size: 0.7rem;
+      font-family: 'DM Sans', sans-serif;
+      cursor: pointer;
+      transition: background .15s;
+    }
+
+    .mod-approve:hover {
+      background: color-mix(in srgb, var(--green) 25%, transparent);
+    }
+
+    .mod-approve:disabled {
+      opacity: .45;
+      cursor: not-allowed;
+    }
+
+    .mod-reject {
+      flex: 1;
+      height: 26px;
+      border-radius: 5px;
+      background: transparent;
+      border: 1px solid var(--border2);
+      color: var(--txt2);
+      font-size: 0.7rem;
+      font-family: 'DM Sans', sans-serif;
+      cursor: pointer;
+      transition: border-color .15s, color .15s;
+    }
+
+    .mod-reject:hover {
+      border-color: var(--red);
+      color: var(--red);
+    }
+
+    .mod-reject:disabled {
+      opacity: .45;
+      cursor: not-allowed;
+    }
   </style>
 </head>
 
@@ -285,6 +425,14 @@
     </div>
   </div>
 
+  <!-- Moderation -->
+  <div class="mod-banner" id="modBanner" onclick="mod.toggle()">
+    <div class="mod-dot"></div>
+    <span class="mod-banner-text">Pending review</span>
+    <span class="mod-banner-count" id="modCount">0</span>
+  </div>
+  <div class="mod-panel" id="modPanel"></div>
+
   <!-- Overlay mode -->
   <div>
     <div class="section-label">Overlay mode</div>
@@ -336,6 +484,7 @@
       currSt = d.action || 'stopped';
 
       if (d.overlay_mode) overlay.render(d.overlay_mode);
+      if (d.pending_moderation !== undefined) mod.update(d.pending_moderation);
 
       setTrack('np', d.current);
 
@@ -363,7 +512,69 @@
       ws.onerror = () => { };
     }
 
-    window.addEventListener('load', () => { connect(); overlay.init(); });
+    const mod = {
+      _items: [],
+      _open: false,
+      toggle() {
+        this._open = !this._open;
+        document.getElementById('modPanel').classList.toggle('visible', this._open);
+        if (this._open) this._render();
+      },
+      update(items) {
+        this._items = items || [];
+        const banner = document.getElementById('modBanner');
+        const count = document.getElementById('modCount');
+        if (!banner) return;
+        if (this._items.length === 0) {
+          banner.classList.remove('visible');
+          document.getElementById('modPanel').classList.remove('visible');
+          this._open = false;
+          return;
+        }
+        banner.classList.add('visible');
+        count.textContent = this._items.length;
+        if (this._open) this._render();
+      },
+      _render() {
+        const panel = document.getElementById('modPanel');
+        panel.innerHTML = this._items.map(d => `
+        <div class="mod-card" id="mod-${d.id}">
+          <div class="mod-card-title"><a href="https://www.youtube.com/watch?v=${d.video_id}" target="_blank">${d.video_title}</a></div>
+          <div class="mod-card-meta">${d.display_name} · ${d.amount}₽</div>
+          <div class="mod-card-reason">${d.reason}</div>
+          <div class="mod-card-actions">
+            <button class="mod-approve" id="mod-a-${d.id}" onclick="mod.approve('${d.id}')">Approve</button>
+            <button class="mod-reject"  id="mod-r-${d.id}" onclick="mod.reject('${d.id}')">Reject</button>
+          </div>
+        </div>`).join('');
+      },
+      async approve(id) {
+        this._setBusy(id, true);
+        const d = await api.fetch(`/api/moderation/approve?id=${id}`, { method: 'POST' });
+        if (!d.success) { alert(d.message); this._setBusy(id, false); return; }
+        document.getElementById(`mod-${id}`)?.remove();
+        await this._refresh();
+      },
+      async reject(id) {
+        this._setBusy(id, true);
+        const d = await api.fetch(`/api/moderation/reject?id=${id}`, { method: 'POST' });
+        if (!d.success) { alert(d.message); this._setBusy(id, false); return; }
+        document.getElementById(`mod-${id}`)?.remove();
+        await this._refresh();
+      },
+      _setBusy(id, v) {
+        const a = document.getElementById(`mod-a-${id}`);
+        const r = document.getElementById(`mod-r-${id}`);
+        if (a) a.disabled = v;
+        if (r) r.disabled = v;
+      },
+      async _refresh() {
+        const d = await api.fetch('/api/moderation/pending');
+        if (d.success) this.update(d.data);
+      },
+    };
+
+    window.addEventListener('load', () => { connect(); overlay.init(); mod._refresh(); });
   </script>
 </body>
 
